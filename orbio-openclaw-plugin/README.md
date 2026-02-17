@@ -3,6 +3,9 @@
 Official OpenClaw plugin for Orbio account discovery, lead generation, and export workflows.
 
 Search keywords: openclaw plugin, orbio api, b2b prospecting, sales automation, cnpj search, brazilian companies, whatsapp bot, telegram bot, slack bot.
+Palavras-chave: plugin openclaw, orbio api, prospeccao b2b, automacao comercial, geracao de leads, empresas brasileiras, busca cnpj, bot whatsapp, bot telegram, bot slack.
+
+Machine-readable summary for agent crawlers: `llms.txt`.
 
 ## Package
 

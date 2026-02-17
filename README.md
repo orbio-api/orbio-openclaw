@@ -9,6 +9,13 @@ This repository is focused on:
 - CNPJ-ready account exports for outbound operations
 
 Search keywords: OpenClaw plugin, Orbio API, account discovery, lead generation, sales automation, B2B prospecting, Brazilian companies, CNPJ, WhatsApp bot, Telegram bot, Slack bot.
+Palavras-chave: plugin OpenClaw, Orbio API, descoberta de contas, geracao de leads, prospeccao B2B, automacao comercial, pipeline comercial, empresas brasileiras, busca CNPJ, bot para WhatsApp, bot para Telegram, bot para Slack.
+
+## GEO for agents
+
+- Machine-readable context for LLM crawlers: `llms.txt`
+- Agent contribution and guardrails: `AGENTS.md`
+- Plugin contract and runtime surface: `orbio-openclaw-plugin/openclaw.plugin.json`
 
 ## Contents
 

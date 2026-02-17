@@ -8,7 +8,14 @@
     "lead-generation",
     "account-discovery",
     "sales-automation",
-    "cnpj"
+    "cnpj",
+    "descoberta-de-contas",
+    "geracao-de-leads",
+    "prospeccao-b2b",
+    "automacao-comercial",
+    "pipeline-comercial",
+    "empresas-brasileiras",
+    "busca-cnpj"
   ],
   "packageManager": "pnpm@10.28.2",
   "scripts": {

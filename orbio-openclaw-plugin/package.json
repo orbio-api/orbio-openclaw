@@ -17,6 +17,7 @@
     "dist",
     "openclaw.plugin.json",
     "skills",
+    "llms.txt",
     "README.md"
   ],
   "openclaw": {
@@ -78,6 +79,13 @@
     "prospecting",
     "cnpj",
     "brazilian-companies",
-    "chatops"
+    "chatops",
+    "descoberta-de-contas",
+    "geracao-de-leads",
+    "prospeccao-b2b",
+    "automacao-comercial",
+    "pipeline-comercial",
+    "empresas-brasileiras",
+    "busca-cnpj"
   ]
 }

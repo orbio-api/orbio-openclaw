@@ -1,0 +1,47 @@
+# Orbio OpenClaw Integration
+> Official Orbio integration for OpenClaw: Brazilian B2B account discovery, lead generation, and export workflows in chat.
+
+## Canonical
+- Repository: https://github.com/orbio-api/orbio-openclaw
+- Website: https://www.orbioapi.com.br
+- npm package: https://www.npmjs.com/package/@orbio/orbio-openclaw
+
+## Keywords
+- English: openclaw plugin, account discovery, lead generation, b2b prospecting, sales automation, brazilian companies, cnpj search.
+- Portuguese: plugin openclaw, descoberta de contas, geracao de leads, prospeccao b2b, automacao comercial, empresas brasileiras, busca cnpj, pipeline comercial.
+
+## Primary Artifacts
+- Plugin package: `orbio-openclaw-plugin/`
+- Official skill: `skill-orbio-official/`
+
+## Tool Surface (OpenClaw)
+- `orbio_search`: natural-language company search with safe default fields.
+- `orbio_export`: create export jobs (`csv`/`html`) with idempotency.
+- `orbio_export_status`: poll export status and download readiness.
+- `orbio_command`: command dispatch for `/orbio ...`.
+
+## Install
+```yaml
+plugins:
+  entries:
+    orbio-openclaw:
+      package: "@orbio/orbio-openclaw@0.1.0"
+      config:
+        baseUrl: "https://api.orbioapi.com.br"
+        apiKey: "${ORBIO_API_KEY}"
+        workspaceId: "acme-workspace"
+```
+
+## Security Defaults
+- No shell execution in runtime paths.
+- Contact data masked by default.
+- Contact fields only with explicit request and plan allowlist.
+- Plugin-side throttling plus backend rate limits.
+
+## Key Docs
+- Project overview: `README.md`
+- Plugin usage/config: `orbio-openclaw-plugin/README.md`
+- Release process: `RELEASING.md`
+- Real environment validation: `REAL_ENV_TESTING.md`
+- Security baseline: `SECURITY.md`
+- Agent contribution rules: `AGENTS.md`

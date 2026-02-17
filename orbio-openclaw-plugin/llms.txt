@@ -1,0 +1,25 @@
+# @orbio/orbio-openclaw
+> Official OpenClaw plugin for Orbio account discovery, lead generation, and export workflows.
+
+## Canonical
+- npm: https://www.npmjs.com/package/@orbio/orbio-openclaw
+- Source: https://github.com/orbio-api/orbio-openclaw/tree/main/orbio-openclaw-plugin
+
+## Keywords
+- English: openclaw plugin, account discovery, lead generation, sales automation, b2b prospecting, cnpj search.
+- Portuguese: plugin openclaw, descoberta de contas, geracao de leads, prospeccao b2b, automacao comercial, busca cnpj.
+
+## Tools
+- `orbio_search`
+- `orbio_export`
+- `orbio_export_status`
+- `orbio_command`
+
+## Config
+- Required: `baseUrl`, `apiKey`
+- Optional: `workspaceId`, `timeoutMs`, `maxRequestsPerMinute`, `retryCount`, `retryBackoffMs`, `capabilitiesTtlMs`
+
+## Security
+- No shell execution
+- Contact fields masked by default
+- Explicit opt-in required for contact fields and bounded by plan allowlist
