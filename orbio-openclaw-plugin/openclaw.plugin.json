@@ -2,7 +2,7 @@
   "id": "orbio-openclaw",
   "name": "Orbio (official)",
   "version": "0.1.0",
-  "description": "Official Orbio account discovery tools for OpenClaw.",
+  "description": "Official Orbio tools for OpenClaw: account discovery, lead generation, and export workflows for Brazilian companies.",
   "skills": ["skills/orbio"],
   "configSchema": {
     "type": "object",

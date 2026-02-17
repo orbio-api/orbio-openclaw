@@ -1,6 +1,8 @@
 # Orbio OpenClaw Plugin (official)
 
-Official OpenClaw plugin for Orbio account discovery.
+Official OpenClaw plugin for Orbio account discovery, lead generation, and export workflows.
+
+Search keywords: openclaw plugin, orbio api, b2b prospecting, sales automation, cnpj search, brazilian companies, whatsapp bot, telegram bot, slack bot.
 
 ## Package
 

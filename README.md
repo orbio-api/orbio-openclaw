@@ -1,6 +1,14 @@
 # Orbio OpenClaw Integration (official)
 
-Standalone repository for the official Orbio integration with OpenClaw.
+Official Orbio integration for OpenClaw to run account discovery and export workflows directly in chat (WhatsApp, Telegram, Slack, and other OpenClaw channels).
+
+This repository is focused on:
+- lead generation in Brazil
+- B2B prospecting and sales pipeline creation
+- natural-language company search
+- CNPJ-ready account exports for outbound operations
+
+Search keywords: OpenClaw plugin, Orbio API, account discovery, lead generation, sales automation, B2B prospecting, Brazilian companies, CNPJ, WhatsApp bot, Telegram bot, Slack bot.
 
 ## Contents
 

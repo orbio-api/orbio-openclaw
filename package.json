@@ -1,6 +1,15 @@
 {
   "name": "orbio-openclaw-integration",
   "private": true,
+  "description": "Official standalone repository for the Orbio x OpenClaw plugin and skill integration.",
+  "keywords": [
+    "openclaw",
+    "orbio",
+    "lead-generation",
+    "account-discovery",
+    "sales-automation",
+    "cnpj"
+  ],
   "packageManager": "pnpm@10.28.2",
   "scripts": {
     "prepare": "husky",

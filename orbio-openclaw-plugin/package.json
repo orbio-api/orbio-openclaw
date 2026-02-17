@@ -1,7 +1,7 @@
 {
   "name": "@orbio/orbio-openclaw",
   "version": "0.1.0",
-  "description": "Official Orbio tools for OpenClaw.",
+  "description": "Official Orbio OpenClaw plugin for Brazilian B2B account discovery, lead generation, and chat-based exports.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -26,13 +26,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/orbio/orbio-openclaw.git",
+    "url": "git+https://github.com/orbio-api/orbio-openclaw.git",
     "directory": "orbio-openclaw-plugin"
   },
   "bugs": {
-    "url": "https://github.com/orbio/orbio-openclaw/issues"
+    "url": "https://github.com/orbio-api/orbio-openclaw/issues"
   },
-  "homepage": "https://github.com/orbio/orbio-openclaw/tree/main/orbio-openclaw-plugin#readme",
+  "homepage": "https://github.com/orbio-api/orbio-openclaw/tree/main/orbio-openclaw-plugin#readme",
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -72,6 +72,12 @@
     "telegram",
     "slack",
     "lead-generation",
-    "account-discovery"
+    "account-discovery",
+    "b2b-sales",
+    "sales-automation",
+    "prospecting",
+    "cnpj",
+    "brazilian-companies",
+    "chatops"
   ]
 }
