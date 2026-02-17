@@ -11,6 +11,7 @@
 ```bash
 pnpm install --frozen-lockfile
 pnpm verify
+pnpm --filter @orbio/orbio-openclaw smoke:live
 cd orbio-openclaw-plugin
 pnpm pack --dry-run
 pnpm publish --access public --no-git-checks --provenance
@@ -33,3 +34,11 @@ pnpm publish --access public --no-git-checks --provenance
 
 1. Update ClawHub listing to the new pinned package version.
 2. Validate in a sandbox OpenClaw workspace before broad rollout.
+
+## Mandatory real-environment gate
+
+Before publishing, complete both:
+1. Automated live smoke (`pnpm --filter @orbio/orbio-openclaw smoke:live`)
+2. Manual sandbox OpenClaw runtime test
+
+Reference: `REAL_ENV_TESTING.md`

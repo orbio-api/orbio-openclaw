@@ -63,6 +63,7 @@ This file is for AI agents working in this repository.
 - This repo uses a `pnpm` workspace (`pnpm-workspace.yaml`); run installs from the repo root.
 - Prefer `pnpm install --frozen-lockfile` for deterministic local/CI installs.
 - Commit hooks are managed by Husky (`.husky/pre-commit`) and must stay enabled.
+- Before publish, run real-environment validation in `REAL_ENV_TESTING.md`.
 - Keep release version synchronized across:
   - `orbio-openclaw-plugin/package.json`
   - `orbio-openclaw-plugin/openclaw.plugin.json`

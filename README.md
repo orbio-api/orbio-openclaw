@@ -52,6 +52,7 @@ plugins:
 - npm package publication workflow: `.github/workflows/publish.yml`
 - CI validation workflow: `.github/workflows/ci.yml`
 - detailed release steps: `RELEASING.md`
+- real-environment validation guide: `REAL_ENV_TESTING.md`
 
 ## Contributor guardrails
 

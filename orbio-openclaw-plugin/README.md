@@ -49,6 +49,17 @@ pnpm verify
 
 Coverage policy: minimum `95%` for lines, branches, functions, and statements.
 
+## Live smoke (real environment)
+
+```bash
+export ORBIO_BASE_URL="https://api.orbioapi.com.br"
+export ORBIO_API_KEY="<sandbox_key>"
+export ORBIO_WORKSPACE_ID="openclaw-smoke"
+pnpm smoke:live
+```
+
+Reference env file: `.env.smoke.example`
+
 ## Release checklist
 
 1. Bump version in `package.json`.
