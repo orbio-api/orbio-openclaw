@@ -15,9 +15,6 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: orbio-openclaw-plugin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,12 +30,13 @@ jobs:
           node-version: 20
           registry-url: "https://registry.npmjs.org"
           cache: pnpm
-          cache-dependency-path: orbio-openclaw-plugin/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Verify version sync
+        working-directory: orbio-openclaw-plugin
         run: |
           node - <<'EOF'
           const fs = require("node:fs");
@@ -57,10 +55,11 @@ jobs:
           }
           EOF
 
-      - name: Typecheck + build
-        run: pnpm verify
+      - name: Quality gate + build
+        run: pnpm --filter @orbio/orbio-openclaw verify
 
       - name: Publish package
+        working-directory: orbio-openclaw-plugin
         run: pnpm publish --access public --no-git-checks --provenance --tag "${{ inputs.dist_tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

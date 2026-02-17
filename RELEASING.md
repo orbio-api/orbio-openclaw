@@ -9,9 +9,9 @@
 ## Manual local release
 
 ```bash
-cd orbio-openclaw-plugin
 pnpm install --frozen-lockfile
 pnpm verify
+cd orbio-openclaw-plugin
 pnpm pack --dry-run
 pnpm publish --access public --no-git-checks --provenance
 ```

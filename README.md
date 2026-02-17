@@ -10,11 +10,16 @@ Standalone repository for the official Orbio integration with OpenClaw.
 ## Quickstart
 
 ```bash
-cd orbio-openclaw-plugin
 pnpm install --frozen-lockfile
 pnpm verify
-pnpm pack --dry-run
+cd orbio-openclaw-plugin && pnpm pack --dry-run
 ```
+
+Quality gate in `pnpm verify`:
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm coverage` (>=95% lines/branches/functions/statements)
+- `pnpm build`
 
 ## OpenClaw install example
 
@@ -47,3 +52,8 @@ plugins:
 - npm package publication workflow: `.github/workflows/publish.yml`
 - CI validation workflow: `.github/workflows/ci.yml`
 - detailed release steps: `RELEASING.md`
+
+## Contributor guardrails
+
+- Agent/contributor rules: `AGENTS.md`
+- Husky pre-commit hook: `.husky/pre-commit` (installed by root `pnpm install`)

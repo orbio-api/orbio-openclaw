@@ -8,9 +8,6 @@ on:
 jobs:
   plugin:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: orbio-openclaw-plugin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,17 +22,18 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: orbio-openclaw-plugin/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck + build
-        run: pnpm verify
+      - name: Quality gate + build
+        run: pnpm --filter @orbio/orbio-openclaw verify
 
       - name: Dry-run package
         run: |
-          mkdir -p ../artifacts
+          mkdir -p artifacts
+          cd orbio-openclaw-plugin
           pnpm pack --pack-destination ../artifacts
 
       - name: Upload package artifact

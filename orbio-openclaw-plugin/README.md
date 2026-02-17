@@ -40,10 +40,14 @@ Optional:
 
 ```bash
 pnpm install --frozen-lockfile
+pnpm lint
 pnpm typecheck
-pnpm build
-pnpm pack --dry-run
+pnpm test
+pnpm coverage
+pnpm verify
 ```
+
+Coverage policy: minimum `95%` for lines, branches, functions, and statements.
 
 ## Release checklist
 
