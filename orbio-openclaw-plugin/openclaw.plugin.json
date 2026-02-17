@@ -1,0 +1,62 @@
+{
+  "id": "orbio-openclaw",
+  "name": "Orbio (official)",
+  "version": "0.1.0",
+  "description": "Official Orbio account discovery tools for OpenClaw.",
+  "skills": ["skills/orbio"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "description": "Orbio API base URL, e.g. https://api.orbioapi.com.br"
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "Workspace-scoped Orbio API key (Bearer token)"
+      },
+      "workspaceId": {
+        "type": "string",
+        "description": "Stable workspace identifier used in plugin-side throttling"
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 120000,
+        "default": 20000
+      },
+      "maxRequestsPerMinute": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 600,
+        "default": 30
+      },
+      "retryCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3,
+        "default": 1
+      },
+      "retryBackoffMs": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000,
+        "default": 300
+      },
+      "capabilitiesTtlMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 3600000,
+        "default": 60000
+      }
+    },
+    "required": ["baseUrl", "apiKey"]
+  },
+  "uiHints": {
+    "apiKey": {
+      "label": "Orbio API key",
+      "sensitive": true
+    }
+  }
+}

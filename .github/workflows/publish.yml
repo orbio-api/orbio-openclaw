@@ -1,0 +1,66 @@
+name: Publish npm package
+
+on:
+  workflow_dispatch:
+    inputs:
+      dist_tag:
+        description: "npm dist-tag"
+        required: true
+        default: "latest"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: orbio-openclaw-plugin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+          cache: pnpm
+          cache-dependency-path: orbio-openclaw-plugin/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify version sync
+        run: |
+          node - <<'EOF'
+          const fs = require("node:fs");
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const manifest = JSON.parse(fs.readFileSync("openclaw.plugin.json", "utf8"));
+          const src = fs.readFileSync("src/index.ts", "utf8");
+          const expected = pkg.version;
+
+          if (manifest.version !== expected) {
+            throw new Error(`openclaw.plugin.json version (${manifest.version}) must match package.json (${expected})`);
+          }
+
+          const marker = `const PLUGIN_VERSION = "${expected}"`;
+          if (!src.includes(marker)) {
+            throw new Error(`src/index.ts must include ${marker}`);
+          }
+          EOF
+
+      - name: Typecheck + build
+        run: pnpm verify
+
+      - name: Publish package
+        run: pnpm publish --access public --no-git-checks --provenance --tag "${{ inputs.dist_tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
