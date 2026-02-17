@@ -11,6 +11,7 @@ pnpm install --frozen-lockfile
 export ORBIO_BASE_URL="https://api.orbioapi.com.br"
 export ORBIO_API_KEY="<sandbox_key>"
 export ORBIO_WORKSPACE_ID="openclaw-smoke"
+export ORBIO_SMOKE_QUERY="empresas de desenvolvimento de software em sao paulo"
 pnpm --filter @orbio/orbio-openclaw smoke:live
 ```
 
@@ -27,8 +28,8 @@ Expected final line:
 
 Install plugin + skill in a sandbox OpenClaw workspace and run:
 
-1. `/orbio search software b2b em sao paulo --limit 5`
-2. `/orbio export software b2b em sao paulo --format csv --limit 5`
+1. `/orbio search empresas de desenvolvimento de software em sao paulo --limit 5`
+2. `/orbio export empresas de desenvolvimento de software em sao paulo --format csv --limit 5`
 3. `/orbio export-status <export_id>`
 
 Checks:

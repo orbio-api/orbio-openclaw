@@ -28,6 +28,6 @@ Use this skill to search Brazilian companies and create exports using Orbio.
 
 ## Examples
 
-- `/orbio search software b2b em sp --limit 20`
-- `/orbio export software b2b em sp --format csv`
+- `/orbio search empresas de desenvolvimento de software em sao paulo --limit 20`
+- `/orbio export empresas de desenvolvimento de software em sao paulo --format csv`
 - `/orbio export-status aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`

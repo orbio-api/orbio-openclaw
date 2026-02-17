@@ -55,6 +55,7 @@ Coverage policy: minimum `95%` for lines, branches, functions, and statements.
 export ORBIO_BASE_URL="https://api.orbioapi.com.br"
 export ORBIO_API_KEY="<sandbox_key>"
 export ORBIO_WORKSPACE_ID="openclaw-smoke"
+export ORBIO_SMOKE_QUERY="empresas de desenvolvimento de software em sao paulo"
 pnpm smoke:live
 ```
 

@@ -35,6 +35,14 @@ function assert(condition, message) {
   }
 }
 
+function assertContains(label, text, expectedSnippet) {
+  if (!text.includes(expectedSnippet)) {
+    throw new Error(
+      `${label}: expected output to include ${JSON.stringify(expectedSnippet)}; got:\n${text}`,
+    );
+  }
+}
+
 async function callTool(handlers, name, args) {
   const handler = getTool(handlers, name);
   const result = await handler(args);
@@ -46,7 +54,7 @@ async function callTool(handlers, name, args) {
 async function run() {
   const baseUrl = requiredEnv("ORBIO_BASE_URL");
   const apiKey = requiredEnv("ORBIO_API_KEY");
-  const query = optionalEnv("ORBIO_SMOKE_QUERY", "software b2b em sao paulo");
+  const query = optionalEnv("ORBIO_SMOKE_QUERY", "empresas de desenvolvimento de software em sao paulo");
   const workspaceId = optionalEnv("ORBIO_WORKSPACE_ID", "openclaw-smoke");
   const limit = Number(optionalEnv("ORBIO_SMOKE_LIMIT", "3"));
 
@@ -77,7 +85,7 @@ async function run() {
     limit,
     with_contact: false,
   });
-  assert(searchText.includes("Search completed."), "Search did not complete successfully");
+  assertContains("orbio_search", searchText, "Search completed.");
   const searchPayload = parseJsonBlock(searchText);
   assert(Array.isArray(searchPayload.accounts), "Search payload missing accounts");
   console.log(
@@ -91,7 +99,7 @@ async function run() {
     format: "csv",
     with_contact: false,
   });
-  assert(exportText.includes("Export requested."), "Export was not accepted");
+  assertContains("orbio_export", exportText, "Export requested.");
   const exportPayload = parseJsonBlock(exportText);
   const exportId = exportPayload?.export?.export_id;
   assert(typeof exportId === "string" && exportId.length > 0, "Missing export_id");
@@ -99,7 +107,7 @@ async function run() {
 
   console.log("[live-smoke] Step 3: orbio_export_status");
   const statusText = await callTool(handlers, "orbio_export_status", { export_id: exportId });
-  assert(statusText.includes("Export status:"), "Export status call failed");
+  assertContains("orbio_export_status", statusText, "Export status:");
   const statusPayload = parseJsonBlock(statusText);
   assert(statusPayload.export_id === exportId, "Status payload export_id mismatch");
   assert(typeof statusPayload.status === "string", "Status payload missing status");
@@ -109,7 +117,7 @@ async function run() {
   const commandText = await callTool(handlers, "orbio_command", {
     command: `search "${query}" --limit ${limit}`,
   });
-  assert(commandText.includes("Search completed."), "Command dispatch failed");
+  assertContains("orbio_command", commandText, "Search completed.");
   console.log("[live-smoke] Command dispatcher OK");
 
   console.log("[live-smoke] PASS");
