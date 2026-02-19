@@ -7,11 +7,15 @@ type JsonRecord = Record<string, unknown>;
 const PLUGIN_ID = "orbio-openclaw";
 const PLUGIN_NAME = "Orbio (official)";
 const PLUGIN_VERSION = "0.1.0";
+const EXECUTION_CONTEXT_HEADER = "X-Orbio-Execution-Context";
+const EXECUTION_CONTEXT_INTEGRATION = "openclaw";
 
 type OrbioPluginConfig = {
   baseUrl: string;
   apiKey: string;
   workspaceId: string;
+  channel: string;
+  sendExecutionContext: boolean;
   timeoutMs: number;
   maxRequestsPerMinute: number;
   retryCount: number;
@@ -214,6 +218,7 @@ class OrbioHttpClient {
     extraHeaders?: Record<string, string>,
   ): Promise<T> {
     const url = `${this.cfg.baseUrl}${path}`;
+    const requestId = randomUUID();
 
     for (let attempt = 0; attempt <= this.cfg.retryCount; attempt += 1) {
       const controller = new AbortController();
@@ -227,7 +232,8 @@ class OrbioHttpClient {
             Authorization: `Bearer ${this.cfg.apiKey}`,
             "Content-Type": "application/json",
             "User-Agent": this.cfg.userAgent,
-            "X-Request-Id": randomUUID(),
+            "X-Request-Id": requestId,
+            ...this.buildExecutionContextHeader(requestId),
             ...(extraHeaders ?? {}),
           },
           body: body === undefined ? undefined : JSON.stringify(body),
@@ -300,6 +306,22 @@ class OrbioHttpClient {
       return null;
     }
   }
+
+  private buildExecutionContextHeader(requestId: string): Record<string, string> {
+    if (!this.cfg.sendExecutionContext) {
+      return {};
+    }
+    const payload = {
+      v: 1,
+      integration: EXECUTION_CONTEXT_INTEGRATION,
+      channel: this.cfg.channel,
+      workspace: this.cfg.workspaceId,
+      run_id: requestId,
+    };
+    return {
+      [EXECUTION_CONTEXT_HEADER]: JSON.stringify(payload),
+    };
+  }
 }
 
 function parseProblem(payload: unknown): { code: string | null; detail: string } {
@@ -343,6 +365,31 @@ function parseNonNegativeInt(value: unknown, fallback: number): number {
   return Math.floor(value);
 }
 
+function parseBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) {
+      return true;
+    }
+    if (["0", "false", "no", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+  return fallback;
+}
+
+function normalizeChannel(value: unknown): string {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) {
+    return "chat";
+  }
+  const normalized = raw.replaceAll(" ", "_").replace(/[^a-z0-9_-]/g, "").slice(0, 64);
+  return normalized || "chat";
+}
+
 function normalizeBaseUrl(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
@@ -367,11 +414,19 @@ function readConfig(api: unknown): OrbioPluginConfig {
   const retryCount = Math.min(3, parseNonNegativeInt(rawConfig.retryCount, 1));
   const retryBackoffMs = parsePositiveInt(rawConfig.retryBackoffMs, 300);
   const capabilitiesTtlMs = parsePositiveInt(rawConfig.capabilitiesTtlMs, 60_000);
+  const workspaceId = String(rawConfig.workspaceId ?? env.ORBIO_WORKSPACE_ID ?? "default").trim();
+  const channel = normalizeChannel(rawConfig.channel ?? env.ORBIO_CHANNEL ?? "chat");
+  const sendExecutionContext = parseBoolean(
+    rawConfig.sendExecutionContext ?? env.ORBIO_SEND_EXECUTION_CONTEXT,
+    true,
+  );
 
   return {
     baseUrl: normalizeBaseUrl(baseUrl),
     apiKey,
-    workspaceId: String(rawConfig.workspaceId ?? env.ORBIO_WORKSPACE_ID ?? "default"),
+    workspaceId: workspaceId || "default",
+    channel,
+    sendExecutionContext,
     timeoutMs,
     maxRequestsPerMinute,
     retryCount,

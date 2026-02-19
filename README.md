@@ -2,6 +2,12 @@
 
 Official Orbio integration for OpenClaw to run account discovery and export workflows directly in chat (WhatsApp, Telegram, Slack, and other OpenClaw channels).
 
+## Workspace positioning
+
+- Pasta do projeto: `orbio-openclaw-integration/`.
+- Projetos irmaos no mesmo workspace: `orbio-api/` e `frontend/`.
+- Referencias cross-project devem usar caminho de workspace (`orbio-api/...`, `frontend/...`) ou relativo (`../orbio-api/...`, `../frontend/...`).
+
 This repository is focused on:
 - lead generation in Brazil
 - B2B prospecting and sales pipeline creation
@@ -47,6 +53,8 @@ plugins:
         baseUrl: "https://api.orbioapi.com.br"
         apiKey: "${ORBIO_API_KEY}"
         workspaceId: "acme-workspace"
+        channel: "slack"
+        sendExecutionContext: true
 ```
 
 ## Skill commands

@@ -204,6 +204,15 @@ function headerRecord(init: RequestInit): Record<string, string> {
   return headers as Record<string, string>;
 }
 
+function executionContextHeaderAt(index: number): Record<string, unknown> {
+  const headers = headerRecord(requestInitAt(index));
+  const raw = headers["X-Orbio-Execution-Context"];
+  if (!raw) {
+    return {};
+  }
+  return JSON.parse(raw) as Record<string, unknown>;
+}
+
 describe("orbio-openclaw plugin", () => {
   beforeEach(() => {
     fetchMock.mockReset();
@@ -272,6 +281,11 @@ describe("orbio-openclaw plugin", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.orbio.test/v1/capabilities");
     const headers = headerRecord(requestInitAt(0));
     expect(headers.Authorization).toBe("Bearer env-api-key");
+    const executionContext = executionContextHeaderAt(0);
+    expect(executionContext.integration).toBe("openclaw");
+    expect(executionContext.channel).toBe("chat");
+    expect(executionContext.workspace).toBe("workspace-1");
+    expect(executionContext.run_id).toBe(headers["X-Request-Id"]);
   });
 
   it("supports env-only workspace identity for plugin-scoped throttling", async () => {
@@ -290,6 +304,8 @@ describe("orbio-openclaw plugin", () => {
         ORBIO_BASE_URL: "https://api.orbio.test",
         ORBIO_API_KEY: "env-key",
         ORBIO_WORKSPACE_ID: "env-workspace",
+        ORBIO_CHANNEL: "whatsapp",
+        ORBIO_SEND_EXECUTION_CONTEXT: "true",
       },
     });
 
@@ -297,7 +313,37 @@ describe("orbio-openclaw plugin", () => {
     const second = await invokeTool(handlers, "orbio_search", { query_text: "second" });
 
     expect(first).toContain("Search completed.");
+    expect(executionContextHeaderAt(0).channel).toBe("whatsapp");
     expect(second).toContain("Rate limited by plugin policy");
+  });
+
+  it("parses execution-context env toggles and channel normalization", async () => {
+    fetchMock
+      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(searchResponse(1))
+      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(searchResponse(1));
+
+    const withDisabledHeader = setupPlugin({
+      config: {
+        sendExecutionContext: undefined,
+        channel: undefined,
+      },
+      env: {
+        ORBIO_SEND_EXECUTION_CONTEXT: "false",
+        ORBIO_CHANNEL: "@@@",
+      },
+    });
+    await invokeTool(withDisabledHeader.handlers, "orbio_search", { query_text: "no ctx header" });
+    expect(headerRecord(requestInitAt(0))["X-Orbio-Execution-Context"]).toBeUndefined();
+
+    const withBlankChannel = setupPlugin({
+      config: {
+        channel: "   ",
+      },
+    });
+    await invokeTool(withBlankChannel.handlers, "orbio_search", { query_text: "blank channel" });
+    expect(executionContextHeaderAt(2).channel).toBe("chat");
   });
 
   it("searches with safe defaults and clamps large limits", async () => {
@@ -321,6 +367,23 @@ describe("orbio-openclaw plugin", () => {
     expect(searchBody.limit).toBe(50_000);
     expect((searchBody.output as Record<string, unknown>).format).toBe("json");
     expect((searchBody.output as Record<string, unknown>).include_explain).toBe(false);
+    const searchHeader = executionContextHeaderAt(1);
+    expect(searchHeader.integration).toBe("openclaw");
+  });
+
+  it("allows opting out of execution-context header", async () => {
+    fetchMock
+      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(searchResponse(1));
+
+    const { handlers } = setupPlugin({
+      config: { sendExecutionContext: false },
+    });
+
+    const text = await invokeTool(handlers, "orbio_search", { query_text: "without ctx" });
+    expect(text).toContain("Search completed.");
+    const headers = headerRecord(requestInitAt(0));
+    expect(headers["X-Orbio-Execution-Context"]).toBeUndefined();
   });
 
   it("enables contact fields only with explicit opt-in and allowlist", async () => {
@@ -729,5 +792,16 @@ describe("orbio-openclaw plugin", () => {
     const text = await invokeTool(handlers, "orbio_export_status", { export_id: "exp-123" });
     expect(text).toContain("Export status:");
     expect(parseJsonBlock(text)).toEqual({});
+  });
+
+  it("maps non-error throws to unknown error message", async () => {
+    const { handlers } = setupPlugin();
+    const args = Object.defineProperty({}, "command", {
+      get() {
+        throw "boom";
+      },
+    });
+    const text = await invokeTool(handlers, "orbio_command", args);
+    expect(text).toContain("Unexpected unknown error.");
   });
 });

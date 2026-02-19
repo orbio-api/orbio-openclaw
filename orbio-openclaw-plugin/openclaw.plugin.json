@@ -20,6 +20,16 @@
         "type": "string",
         "description": "Stable workspace identifier used in plugin-side throttling"
       },
+      "channel": {
+        "type": "string",
+        "description": "Execution channel hint for telemetry (e.g. slack, whatsapp, telegram)",
+        "default": "chat"
+      },
+      "sendExecutionContext": {
+        "type": "boolean",
+        "description": "When true, send X-Orbio-Execution-Context header on each API request",
+        "default": true
+      },
       "timeoutMs": {
         "type": "integer",
         "minimum": 1000,

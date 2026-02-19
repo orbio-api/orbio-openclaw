@@ -2,6 +2,11 @@
 
 This file is for AI agents working in this repository.
 
+## Workspace positioning
+- In the umbrella workspace root, this project is located at `orbio-openclaw-integration/`.
+- Sibling projects are `orbio-api/` and `frontend/`.
+- For cross-project references, use workspace-root paths (`orbio-api/...`, `frontend/...`) or sibling-relative paths (`../orbio-api/...`, `../frontend/...`).
+
 ## Scope (short)
 - Official Orbio integration for OpenClaw.
 - npm plugin package (`@orbio/orbio-openclaw`) and official skill artifacts.

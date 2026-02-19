@@ -23,6 +23,7 @@ Machine-readable summary for agent crawlers: `llms.txt`.
 
 - No `exec`, `curl`, or subprocess execution.
 - Workspace-scoped API key authentication (`Authorization: Bearer <api_key>`).
+- Structured execution-context telemetry header (`X-Orbio-Execution-Context`) for integration/channel attribution.
 - Contact data masked by default.
 - Plugin-side request throttling (`maxRequestsPerMinute`) in addition to server-side limits.
 - Retries only for transient failures (timeouts and 5xx), never for 4xx.
@@ -35,6 +36,8 @@ Machine-readable summary for agent crawlers: `llms.txt`.
 Optional:
 
 - `workspaceId` (default: `default`)
+- `channel` (default: `chat`)
+- `sendExecutionContext` (default: `true`)
 - `timeoutMs` (default: `20000`)
 - `maxRequestsPerMinute` (default: `30`)
 - `retryCount` (default: `1`)
