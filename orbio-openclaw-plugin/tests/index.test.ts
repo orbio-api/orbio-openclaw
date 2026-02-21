@@ -13,6 +13,14 @@ type ToolSpec = {
 };
 
 type ToolHandler = (args: unknown) => Promise<ToolResult>;
+type ToolExecute = (id: string, args: unknown) => Promise<ToolResult>;
+
+type ModernToolRegistration = {
+  name: string;
+  description: string;
+  parameters: unknown;
+  execute: ToolExecute;
+};
 
 type SetupOptions = {
   config?: Record<string, unknown>;
@@ -94,6 +102,16 @@ function searchResponse(accountsCount = 3): Response {
   });
 }
 
+function specResponse(spec: Record<string, unknown> = { kind: "account_query" }): Response {
+  return jsonResponse({ spec });
+}
+
+function normalizedSpecResponse(
+  spec: Record<string, unknown> = { kind: "account_query", normalized: true },
+): Response {
+  return jsonResponse({ spec });
+}
+
 function exportResponse(): Response {
   return jsonResponse({
     request_id: "req-export",
@@ -153,7 +171,22 @@ function setupPlugin(options?: SetupOptions): {
       ...(options?.config ?? {}),
     },
     env: options?.env ?? {},
-    registerTool(name: string, spec: ToolSpec, handler: ToolHandler): unknown {
+    registerTool(...args: unknown[]): unknown {
+      const first = args[0];
+      if (first && typeof first === "object" && "name" in first && "execute" in first) {
+        const tool = first as ModernToolRegistration;
+        const optionsRecord = (args[1] ?? {}) as Record<string, unknown>;
+        const optional = optionsRecord.optional === true;
+        handlers.set(tool.name, async (payload) => tool.execute("test-run", payload));
+        specs.set(tool.name, {
+          description: tool.description,
+          parameters: tool.parameters,
+          optional,
+        });
+        return { name: tool.name };
+      }
+
+      const [name, spec, handler] = args as [string, ToolSpec, ToolHandler];
       handlers.set(name, handler);
       specs.set(name, spec);
       return { name };
@@ -255,9 +288,142 @@ describe("orbio-openclaw plugin", () => {
     expect(() => registerOrbioPlugin(null)).toThrow("Missing plugin config: baseUrl");
   });
 
-  it("reads credentials from env and normalizes baseUrl", async () => {
+  it("accepts pluginConfig envelope from newer OpenClaw runtime", async () => {
+    fetchMock.mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse()).mockResolvedValueOnce(searchResponse(1));
+
+    const handlers = new Map<string, ToolHandler>();
+    const specs = new Map<string, ToolSpec>();
+    const api = {
+      config: { meta: { source: "global-config" } },
+      pluginConfig: {
+        config: {
+          baseUrl: "https://api.orbio.test",
+          apiKey: "api-key",
+          workspaceId: "workspace-1",
+          timeoutMs: 1000,
+          maxRequestsPerMinute: 30,
+          retryCount: 0,
+          retryBackoffMs: 0,
+          capabilitiesTtlMs: 60000,
+        },
+      },
+      registerTool(name: string, spec: ToolSpec, handler: ToolHandler): unknown {
+        handlers.set(name, handler);
+        specs.set(name, spec);
+        return { name };
+      },
+    };
+
+    registerOrbioPlugin(api);
+    expect(specs.has("orbio_search")).toBe(true);
+
+    const text = await invokeTool(handlers, "orbio_search", { query_text: "software b2b" });
+    expect(text).toContain("Search completed.");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.orbio.test/v1/capabilities");
+  });
+
+  it("registers tools using modern registerTool signature when available", async () => {
+    fetchMock.mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse()).mockResolvedValueOnce(searchResponse(1));
+
+    const handlers = new Map<string, ToolHandler>();
+    const specs = new Map<string, ToolSpec>();
+    const api = {
+      config: {
+        baseUrl: "https://api.orbio.test",
+        apiKey: "api-key",
+      },
+      registerTool(
+        tool: ModernToolRegistration,
+        options?: {
+          optional?: boolean;
+        },
+      ): unknown {
+        if (!tool || typeof tool !== "object" || typeof tool.execute !== "function") {
+          throw new Error("expected modern registerTool signature");
+        }
+        handlers.set(tool.name, async (payload) => tool.execute("test-run", payload));
+        specs.set(tool.name, {
+          description: tool.description,
+          parameters: tool.parameters,
+          optional: options?.optional === true,
+        });
+        return { name: tool.name };
+      },
+    };
+
+    registerOrbioPlugin(api);
+    expect(specs.get("orbio_search")?.optional).toBe(true);
+
+    const text = await invokeTool(handlers, "orbio_search", { query_text: "software b2b" });
+    expect(text).toContain("Search completed.");
+  });
+
+  it("falls back to legacy registerTool signature when modern call fails", async () => {
+    fetchMock.mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse()).mockResolvedValueOnce(searchResponse(1));
+
+    const handlers = new Map<string, ToolHandler>();
+    const specs = new Map<string, ToolSpec>();
+    const api = {
+      config: {
+        baseUrl: "https://api.orbio.test",
+        apiKey: "api-key",
+      },
+      registerTool(...args: unknown[]): unknown {
+        if (typeof args[0] !== "string") {
+          throw new TypeError("legacy runtime expects registerTool(name, spec, handler)");
+        }
+        const [name, spec, handler] = args as [string, ToolSpec, ToolHandler];
+        handlers.set(name, handler);
+        specs.set(name, spec);
+        return { name };
+      },
+    };
+
+    registerOrbioPlugin(api);
+    expect(specs.get("orbio_search")?.optional).toBe(true);
+
+    const text = await invokeTool(handlers, "orbio_search", { query_text: "software b2b" });
+    expect(text).toContain("Search completed.");
+  });
+
+  it("rethrows non-TypeError registerTool failures in modern mode", () => {
+    const api = {
+      config: {
+        baseUrl: "https://api.orbio.test",
+        apiKey: "api-key",
+      },
+      registerTool(): unknown {
+        throw new Error("boom modern");
+      },
+    };
+
+    expect(() => registerOrbioPlugin(api)).toThrow("boom modern");
+  });
+
+  it("returns clear error when /v1/specs returns no spec", async () => {
     fetchMock
       .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(jsonResponse({}));
+
+    const { handlers } = setupPlugin();
+    const text = await invokeTool(handlers, "orbio_search", { query_text: "software b2b" });
+    expect(text).toContain("Spec generation failed: /v1/specs returned empty spec.");
+  });
+
+  it("returns clear error when /v1/specs/normalize returns no spec", async () => {
+    fetchMock
+      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(specResponse())
+      .mockResolvedValueOnce(jsonResponse({}));
+
+    const { handlers } = setupPlugin();
+    const text = await invokeTool(handlers, "orbio_search", { query_text: "software b2b" });
+    expect(text).toContain("Spec normalization failed: /v1/specs/normalize returned empty spec.");
+  });
+
+  it("reads credentials from env and normalizes baseUrl", async () => {
+    fetchMock
+      .mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(searchResponse(1));
 
     const { handlers } = setupPlugin({
@@ -290,7 +456,7 @@ describe("orbio-openclaw plugin", () => {
 
   it("supports env-only workspace identity for plugin-scoped throttling", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(searchResponse(1));
 
     const { handlers } = setupPlugin({
@@ -319,9 +485,9 @@ describe("orbio-openclaw plugin", () => {
 
   it("parses execution-context env toggles and channel normalization", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(searchResponse(1))
-      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(searchResponse(1));
 
     const withDisabledHeader = setupPlugin({
@@ -343,12 +509,12 @@ describe("orbio-openclaw plugin", () => {
       },
     });
     await invokeTool(withBlankChannel.handlers, "orbio_search", { query_text: "blank channel" });
-    expect(executionContextHeaderAt(2).channel).toBe("chat");
+    expect(executionContextHeaderAt(5).channel).toBe("chat");
   });
 
   it("searches with safe defaults and clamps large limits", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse([...SAFE_FIELDS, ...CONTACT_FIELDS]))
+      .mockResolvedValueOnce(capabilitiesResponse([...SAFE_FIELDS, ...CONTACT_FIELDS])).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(searchResponse(12));
 
     const { handlers } = setupPlugin();
@@ -373,7 +539,7 @@ describe("orbio-openclaw plugin", () => {
 
   it("allows opting out of execution-context header", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(searchResponse(1));
 
     const { handlers } = setupPlugin({
@@ -388,7 +554,7 @@ describe("orbio-openclaw plugin", () => {
 
   it("enables contact fields only with explicit opt-in and allowlist", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse([...SAFE_FIELDS, ...CONTACT_FIELDS]))
+      .mockResolvedValueOnce(capabilitiesResponse([...SAFE_FIELDS, ...CONTACT_FIELDS])).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(searchResponse(2));
 
     const { handlers } = setupPlugin();
@@ -410,7 +576,7 @@ describe("orbio-openclaw plugin", () => {
   });
 
   it("keeps responses masked when contact fields are not allowed", async () => {
-    fetchMock.mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(searchResponse(1));
+    fetchMock.mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse()).mockResolvedValueOnce(searchResponse(1));
 
     const { handlers } = setupPlugin();
     const text = await invokeTool(handlers, "orbio_search", {
@@ -425,7 +591,7 @@ describe("orbio-openclaw plugin", () => {
 
   it("creates exports with idempotency key and format flags", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse([...SAFE_FIELDS, ...CONTACT_FIELDS]))
+      .mockResolvedValueOnce(capabilitiesResponse([...SAFE_FIELDS, ...CONTACT_FIELDS])).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(exportResponse());
 
     const { handlers } = setupPlugin();
@@ -441,18 +607,18 @@ describe("orbio-openclaw plugin", () => {
     expect((payload.export as Record<string, unknown>).export_id).toBe("exp-123");
     expect((payload.fields as string[]).includes("email")).toBe(true);
 
-    const exportInit = requestInitAt(1);
+    const exportInit = requestInitAt(3);
     const headers = headerRecord(exportInit);
     expect(headers["Idempotency-Key"]).toMatch(/^openclaw:export:/);
 
-    const exportBody = requestBodyAt(1);
+    const exportBody = requestBodyAt(3);
     expect((exportBody.output as Record<string, unknown>).format).toBe("html");
     expect(exportBody.limit).toBe(30);
   });
 
   it("uses csv as default export format when omitted", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse(SAFE_FIELDS))
+      .mockResolvedValueOnce(capabilitiesResponse(SAFE_FIELDS)).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(exportResponse());
 
     const { handlers } = setupPlugin();
@@ -466,7 +632,7 @@ describe("orbio-openclaw plugin", () => {
   });
 
   it("adds masking note for exports when contact is requested but unavailable", async () => {
-    fetchMock.mockResolvedValueOnce(capabilitiesResponse(SAFE_FIELDS)).mockResolvedValueOnce(exportResponse());
+    fetchMock.mockResolvedValueOnce(capabilitiesResponse(SAFE_FIELDS)).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse()).mockResolvedValueOnce(exportResponse());
 
     const { handlers } = setupPlugin();
     const text = await invokeTool(handlers, "orbio_export", {
@@ -492,7 +658,7 @@ describe("orbio-openclaw plugin", () => {
 
   it("supports command-dispatch with quoted args and aliases", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse([...SAFE_FIELDS, ...CONTACT_FIELDS]))
+      .mockResolvedValueOnce(capabilitiesResponse([...SAFE_FIELDS, ...CONTACT_FIELDS])).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(searchResponse(2))
       .mockResolvedValueOnce(exportStatusResponse());
 
@@ -514,7 +680,7 @@ describe("orbio-openclaw plugin", () => {
 
   it("supports export through command dispatch", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse([...SAFE_FIELDS, ...CONTACT_FIELDS]))
+      .mockResolvedValueOnce(capabilitiesResponse([...SAFE_FIELDS, ...CONTACT_FIELDS])).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(exportResponse());
 
     const { handlers } = setupPlugin();
@@ -585,7 +751,7 @@ describe("orbio-openclaw plugin", () => {
 
   it("enforces plugin-side rate limiting per workspace and tool", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(searchResponse(1));
 
     const { handlers } = setupPlugin({
@@ -597,13 +763,14 @@ describe("orbio-openclaw plugin", () => {
 
     expect(first).toContain("Search completed.");
     expect(second).toContain("Rate limited by plugin policy");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("caches capabilities for the configured TTL", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(searchResponse(1))
+      .mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(searchResponse(1));
 
     const { handlers } = setupPlugin({
@@ -617,11 +784,11 @@ describe("orbio-openclaw plugin", () => {
       String(call[0]).endsWith("/v1/capabilities"),
     );
     expect(capabilityCalls).toHaveLength(1);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
   it("rejects search when allowlist has no safe fields", async () => {
-    fetchMock.mockResolvedValueOnce(capabilitiesResponse(["email"]));
+    fetchMock.mockResolvedValueOnce(capabilitiesResponse(["email"])).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse());
 
     const { handlers } = setupPlugin();
     const text = await invokeTool(handlers, "orbio_search", { query_text: "invalid" });
@@ -632,7 +799,7 @@ describe("orbio-openclaw plugin", () => {
 
   it("retries transient 5xx responses", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(jsonResponse({ detail: "downstream" }, 503))
       .mockResolvedValueOnce(searchResponse(1));
 
@@ -642,12 +809,12 @@ describe("orbio-openclaw plugin", () => {
 
     const text = await invokeTool(handlers, "orbio_search", { query_text: "retry" });
     expect(text).toContain("Search completed.");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("retries transient network failures", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockRejectedValueOnce(new TypeError("socket closed"))
       .mockResolvedValueOnce(searchResponse(1));
 
@@ -657,14 +824,14 @@ describe("orbio-openclaw plugin", () => {
 
     const text = await invokeTool(handlers, "orbio_search", { query_text: "retry network" });
     expect(text).toContain("Search completed.");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("maps timeout abort errors to a clear API message", async () => {
     const abortError = new Error("timeout");
     abortError.name = "AbortError";
 
-    fetchMock.mockResolvedValueOnce(capabilitiesResponse()).mockRejectedValueOnce(abortError);
+    fetchMock.mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse()).mockRejectedValueOnce(abortError);
 
     const { handlers } = setupPlugin({
       config: { retryCount: 0, timeoutMs: 1500 },
@@ -675,7 +842,7 @@ describe("orbio-openclaw plugin", () => {
   });
 
   it("maps direct network failures without retry to network error message", async () => {
-    fetchMock.mockResolvedValueOnce(capabilitiesResponse()).mockRejectedValueOnce(new TypeError("offline"));
+    fetchMock.mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse()).mockRejectedValueOnce(new TypeError("offline"));
 
     const { handlers } = setupPlugin({
       config: { retryCount: 0 },
@@ -758,7 +925,7 @@ describe("orbio-openclaw plugin", () => {
     },
   ])("$title", async ({ status, payload, headers, expected }) => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(jsonResponse(payload, status, headers));
 
     const { handlers } = setupPlugin({ config: { retryCount: 0 } });
@@ -768,7 +935,7 @@ describe("orbio-openclaw plugin", () => {
 
   it("handles non-json error payloads safely", async () => {
     fetchMock
-      .mockResolvedValueOnce(capabilitiesResponse())
+      .mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(textResponse("not-json", 400, { "X-Request-Id": "req-text" }));
 
     const { handlers } = setupPlugin();
