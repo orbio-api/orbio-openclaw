@@ -4,7 +4,7 @@
 
 - `pnpm` 10+
 - npm publish access for `@orbio` scope
-- `NPM_TOKEN` set for GitHub Actions publishing
+- npm Trusted Publisher configured for `orbio-api/orbio-openclaw` on workflow `publish.yml`
 
 ## Manual local release
 
@@ -28,7 +28,7 @@ pnpm publish --access public --no-git-checks --provenance
 
 1. Go to Actions -> `Publish npm package`.
 2. Choose the npm dist-tag (`latest`, `next`, etc.).
-3. Workflow validates version sync, builds, and publishes to npm.
+3. Workflow uses OIDC trusted publishing (no `NPM_TOKEN` secret), validates version sync, builds, and publishes to npm.
 
 ## Post-release
 

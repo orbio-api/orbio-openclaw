@@ -27,7 +27,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
@@ -61,5 +61,3 @@ jobs:
       - name: Publish package
         working-directory: orbio-openclaw-plugin
         run: pnpm publish --access public --no-git-checks --provenance --tag "${{ inputs.dist_tag }}"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
