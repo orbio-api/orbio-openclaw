@@ -46,6 +46,7 @@ type AccountSearchResponse = {
   request_id: string;
   snapshot: string;
   snapshot_date: string;
+  spec?: JsonRecord;
   accounts: JsonRecord[];
   has_more: boolean;
   next_cursor: string | null;
@@ -55,6 +56,7 @@ type ExportCreateResponse = {
   request_id: string;
   snapshot: string;
   snapshot_date: string;
+  spec?: JsonRecord;
   preview_accounts: JsonRecord[];
   export: {
     export_id: string;
@@ -71,10 +73,23 @@ type ExportStatusResponse = {
   export_id: string;
   status: string;
   format: string;
+  snapshot?: string;
+  snapshot_date?: string;
   row_count: number | null;
   size_bytes: number | null;
+  object_key?: string | null;
   expires_at: string | null;
   download_url: string | null;
+};
+
+type SpecResponse = {
+  spec: JsonRecord;
+};
+
+type OutputSpec = {
+  format: "json" | "csv" | "html";
+  include_explain: boolean;
+  fields: string[];
 };
 
 const SAFE_DEFAULT_FIELDS = [
@@ -365,12 +380,30 @@ function parseNonNegativeInt(value: unknown, fallback: number): number {
   return Math.floor(value);
 }
 
+function toTrimmedString(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (typeof value === "number" || typeof value === "boolean" || value == null) {
+    return String(value ?? "").trim();
+  }
+  try {
+    return String(value).trim();
+  } catch {
+    return "";
+  }
+}
+
+function asJsonRecord(value: unknown): JsonRecord | null {
+  return value && typeof value === "object" ? (value as JsonRecord) : null;
+}
+
 function parseBoolean(value: unknown, fallback: boolean): boolean {
   if (typeof value === "boolean") {
     return value;
   }
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
+  if (typeof value === "string" || value instanceof String) {
+    const normalized = toTrimmedString(value).toLowerCase();
     if (["1", "true", "yes", "on"].includes(normalized)) {
       return true;
     }
@@ -382,7 +415,7 @@ function parseBoolean(value: unknown, fallback: boolean): boolean {
 }
 
 function normalizeChannel(value: unknown): string {
-  const raw = String(value ?? "").trim().toLowerCase();
+  const raw = toTrimmedString(value).toLowerCase();
   if (!raw) {
     return "chat";
   }
@@ -396,11 +429,34 @@ function normalizeBaseUrl(value: string): string {
 
 function readConfig(api: unknown): OrbioPluginConfig {
   const asRecord = (api ?? {}) as JsonRecord;
-  const rawConfig = ((asRecord.config ?? {}) as JsonRecord) ?? {};
-  const env = ((asRecord.env ?? {}) as Record<string, string | undefined>) ?? {};
+  const pluginConfigEnvelope = asJsonRecord(asRecord.pluginConfig);
+  const pluginConfig =
+    asJsonRecord(pluginConfigEnvelope?.config) ??
+    pluginConfigEnvelope;
+  const rootConfig = asJsonRecord(asRecord.config);
+  const rootPlugins = asJsonRecord(rootConfig?.plugins);
+  const rootPluginEntries = asJsonRecord(rootPlugins?.entries);
+  const rootPluginEntry = asJsonRecord(rootPluginEntries?.[PLUGIN_ID]);
+  const rootPluginConfig =
+    asJsonRecord(rootPluginEntry?.config) ??
+    rootPluginEntry;
+  const legacyConfig =
+    rootConfig &&
+    (Object.prototype.hasOwnProperty.call(rootConfig, "baseUrl") ||
+      Object.prototype.hasOwnProperty.call(rootConfig, "apiKey"))
+      ? rootConfig
+      : null;
+  const rawConfig =
+    pluginConfig ??
+    rootPluginConfig ??
+    legacyConfig ??
+    {};
+  const envSource = asJsonRecord(asRecord.env);
+  const env =
+    ((envSource ?? process.env) as Record<string, string | undefined>) ?? {};
 
-  const baseUrl = String(rawConfig.baseUrl ?? env.ORBIO_BASE_URL ?? "").trim();
-  const apiKey = String(rawConfig.apiKey ?? env.ORBIO_API_KEY ?? "").trim();
+  const baseUrl = toTrimmedString(rawConfig.baseUrl ?? env.ORBIO_BASE_URL ?? "");
+  const apiKey = toTrimmedString(rawConfig.apiKey ?? env.ORBIO_API_KEY ?? "");
 
   if (!baseUrl) {
     throw new Error("Missing plugin config: baseUrl");
@@ -414,7 +470,7 @@ function readConfig(api: unknown): OrbioPluginConfig {
   const retryCount = Math.min(3, parseNonNegativeInt(rawConfig.retryCount, 1));
   const retryBackoffMs = parsePositiveInt(rawConfig.retryBackoffMs, 300);
   const capabilitiesTtlMs = parsePositiveInt(rawConfig.capabilitiesTtlMs, 60_000);
-  const workspaceId = String(rawConfig.workspaceId ?? env.ORBIO_WORKSPACE_ID ?? "default").trim();
+  const workspaceId = toTrimmedString(rawConfig.workspaceId ?? env.ORBIO_WORKSPACE_ID ?? "default");
   const channel = normalizeChannel(rawConfig.channel ?? env.ORBIO_CHANNEL ?? "chat");
   const sendExecutionContext = parseBoolean(
     rawConfig.sendExecutionContext ?? env.ORBIO_SEND_EXECUTION_CONTEXT,
@@ -718,19 +774,48 @@ export default function registerOrbioPlugin(api: unknown): unknown {
     }
   };
 
+  const resolveSpecFromQuery = async (
+    queryText: string,
+    limit: number,
+    output: OutputSpec,
+  ): Promise<JsonRecord> => {
+    const payload = await http.request<SpecResponse>("POST", "/v1/specs", {
+      query_text: queryText,
+      limit,
+      output,
+      include_explain: false,
+    });
+    const generatedSpec = asJsonRecord(payload?.spec);
+    if (!generatedSpec) {
+      throw new Error("Spec generation failed: /v1/specs returned empty spec.");
+    }
+
+    const normalizedPayload = await http.request<SpecResponse>("POST", "/v1/specs/normalize", {
+      spec: generatedSpec,
+    });
+    const normalizedSpec = asJsonRecord(normalizedPayload?.spec);
+    if (!normalizedSpec) {
+      throw new Error("Spec normalization failed: /v1/specs/normalize returned empty spec.");
+    }
+    return normalizedSpec;
+  };
+
   const doSearch = async (args: SearchToolInput): Promise<string> => {
     const caps = await getCapabilities();
     const withContact = Boolean(args.with_contact);
     const { fields, contactGranted } = chooseOutputFields(caps.field_allowlist, withContact);
+    const limit = clampLimit(args.limit);
+    const output: OutputSpec = {
+      format: "json",
+      include_explain: false,
+      fields,
+    };
+    const spec = await resolveSpecFromQuery(args.query_text, limit, output);
 
     const payload = await http.request<AccountSearchResponse>("POST", "/v1/accounts/search", {
-      query_text: args.query_text,
-      limit: clampLimit(args.limit),
-      output: {
-        format: "json",
-        include_explain: false,
-        fields,
-      },
+      spec,
+      limit,
+      output,
     });
 
     return renderSearchText(payload, {
@@ -745,15 +830,18 @@ export default function registerOrbioPlugin(api: unknown): unknown {
     const withContact = Boolean(args.with_contact);
     const { fields, contactGranted } = chooseOutputFields(caps.field_allowlist, withContact);
     const format = args.format ?? "csv";
+    const limit = clampLimit(args.limit);
+    const output: OutputSpec = {
+      format,
+      include_explain: false,
+      fields,
+    };
+    const spec = await resolveSpecFromQuery(args.query_text, limit, output);
 
     const requestBody = {
-      query_text: args.query_text,
-      limit: clampLimit(args.limit),
-      output: {
-        format,
-        include_explain: false,
-        fields,
-      },
+      spec,
+      limit,
+      output,
     };
 
     const idempotencyKey = buildIdempotencyKey("export", requestBody);
@@ -782,11 +870,13 @@ export default function registerOrbioPlugin(api: unknown): unknown {
   const resolveCommandRaw = (args: CommandToolInput): string => {
     const raw = args.command ?? args.command_arg ?? args.commandArg;
     const commandName = args.command_name ?? args.commandName;
-    if (raw && raw.trim()) {
-      return raw.trim();
+    const rawText = toTrimmedString(raw);
+    if (rawText) {
+      return rawText;
     }
-    if (commandName && commandName.trim()) {
-      return commandName.trim();
+    const commandText = toTrimmedString(commandName);
+    if (commandText) {
+      return commandText;
     }
     return "";
   };
@@ -818,16 +908,76 @@ export default function registerOrbioPlugin(api: unknown): unknown {
     return doExportStatus({ export_id: parsed.exportId });
   };
 
+  type RegisterToolLegacyFn = (
+    name: string,
+    spec: {
+      description: string;
+      parameters: unknown;
+      optional?: boolean;
+    },
+    handler: (args: unknown) => Promise<ToolResult>,
+  ) => unknown;
+
+  type RegisterToolModernFn = (
+    tool: {
+      name: string;
+      description: string;
+      parameters: unknown;
+      execute: (id: string, args: unknown) => Promise<ToolResult>;
+    },
+    options?: {
+      optional?: boolean;
+    },
+  ) => unknown;
+
   const pluginApi = api as {
-    registerTool: (
-      name: string,
-      spec: {
-        description: string;
-        parameters: unknown;
-        optional?: boolean;
-      },
-      handler: (args: any) => Promise<ToolResult>,
-    ) => unknown;
+    registerTool: RegisterToolLegacyFn | RegisterToolModernFn;
+  };
+
+  const registerToolCompat = (
+    name: string,
+    description: string,
+    parameters: unknown,
+    handler: (args: unknown) => Promise<ToolResult>,
+  ): unknown => {
+    const registerTool = pluginApi.registerTool as (...args: unknown[]) => unknown;
+
+    // OpenClaw 2026+ expects registerTool({ name, description, parameters, execute }, { optional }).
+    // Keep a fallback for older runtimes that still use (name, spec, handler).
+    const registerModern = () =>
+      (pluginApi.registerTool as RegisterToolModernFn)(
+        {
+          name,
+          description,
+          parameters,
+          execute: async (_id, args) => handler(args),
+        },
+        { optional: true },
+      );
+
+    const registerLegacy = () =>
+      (pluginApi.registerTool as RegisterToolLegacyFn)(
+        name,
+        {
+          description,
+          parameters,
+          optional: true,
+        },
+        handler,
+      );
+
+    if (registerTool.length >= 3) {
+      return registerLegacy();
+    }
+
+    try {
+      return registerModern();
+    } catch (error) {
+      if (error instanceof TypeError) {
+        return registerLegacy();
+      }
+      throw error;
+    }
   };
 
   return {
@@ -835,45 +985,33 @@ export default function registerOrbioPlugin(api: unknown): unknown {
     name: PLUGIN_NAME,
     description: "Official Orbio account discovery tools for OpenClaw.",
     tools: [
-      pluginApi.registerTool(
+      registerToolCompat(
         "orbio_search",
-        {
-          description:
-            "Search Brazilian companies with chat-safe defaults. Use with_contact=true to request contact fields when plan allows.",
-          parameters: SearchToolInput,
-          optional: true,
-        },
-        async (args: SearchToolInput) => runGuarded("orbio_search", () => doSearch(args)),
+        "Search Brazilian companies with chat-safe defaults. Use with_contact=true to request contact fields when plan allows.",
+        SearchToolInput,
+        async (args: unknown) =>
+          runGuarded("orbio_search", () => doSearch(args as SearchToolInput)),
       ),
-      pluginApi.registerTool(
+      registerToolCompat(
         "orbio_export",
-        {
-          description:
-            "Create Orbio export jobs (csv/html). Uses Idempotency-Key and chat-safe field policy.",
-          parameters: ExportToolInput,
-          optional: true,
-        },
-        async (args: ExportToolInput) => runGuarded("orbio_export", () => doExport(args)),
+        "Create Orbio export jobs (csv/html). Uses Idempotency-Key and chat-safe field policy.",
+        ExportToolInput,
+        async (args: unknown) =>
+          runGuarded("orbio_export", () => doExport(args as ExportToolInput)),
       ),
-      pluginApi.registerTool(
+      registerToolCompat(
         "orbio_export_status",
-        {
-          description: "Get current status for an Orbio export job.",
-          parameters: ExportStatusToolInput,
-          optional: true,
-        },
-        async (args: ExportStatusToolInput) =>
-          runGuarded("orbio_export_status", () => doExportStatus(args)),
+        "Get current status for an Orbio export job.",
+        ExportStatusToolInput,
+        async (args: unknown) =>
+          runGuarded("orbio_export_status", () => doExportStatus(args as ExportStatusToolInput)),
       ),
-      pluginApi.registerTool(
+      registerToolCompat(
         "orbio_command",
-        {
-          description:
-            "Command dispatcher for /orbio slash commands. Examples: search, export, export-status.",
-          parameters: CommandToolInput,
-          optional: true,
-        },
-        async (args: CommandToolInput) => runGuarded("orbio_command", () => doCommand(args)),
+        "Command dispatcher for /orbio slash commands. Examples: search, export, export-status.",
+        CommandToolInput,
+        async (args: unknown) =>
+          runGuarded("orbio_command", () => doCommand(args as CommandToolInput)),
       ),
     ],
   };
