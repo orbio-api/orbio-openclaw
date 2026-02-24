@@ -529,11 +529,11 @@ describe("orbio-openclaw plugin", () => {
     expect((payload.accounts as unknown[]).length).toBe(10);
     expect(payload.fields).toEqual(SAFE_FIELDS);
 
-    const searchBody = requestBodyAt(1);
+    const searchBody = requestBodyAt(3);
     expect(searchBody.limit).toBe(50_000);
     expect((searchBody.output as Record<string, unknown>).format).toBe("json");
     expect((searchBody.output as Record<string, unknown>).include_explain).toBe(false);
-    const searchHeader = executionContextHeaderAt(1);
+    const searchHeader = executionContextHeaderAt(3);
     expect(searchHeader.integration).toBe("openclaw");
   });
 
@@ -627,7 +627,7 @@ describe("orbio-openclaw plugin", () => {
       with_contact: false,
     });
 
-    const exportBody = requestBodyAt(1);
+    const exportBody = requestBodyAt(3);
     expect((exportBody.output as Record<string, unknown>).format).toBe("csv");
   });
 
