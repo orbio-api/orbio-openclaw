@@ -44,8 +44,9 @@
     "lint": "eslint \"{src,tests}/**/*.ts\" --max-warnings=0",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
+    "env:audit": "node scripts/check-env-contract.mjs",
     "smoke:live": "pnpm build && node scripts/live-smoke.mjs",
-    "quality": "pnpm lint && pnpm typecheck && pnpm coverage",
+    "quality": "pnpm lint && pnpm typecheck && pnpm coverage && pnpm env:audit",
     "typecheck": "tsc --noEmit",
     "verify": "pnpm quality && pnpm build",
     "prepack": "pnpm build"
