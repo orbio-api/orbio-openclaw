@@ -73,6 +73,6 @@ Reference env file: `.env.smoke.example`
 
 1. Bump version in `package.json`.
 2. Sync version in `openclaw.plugin.json`.
-3. Sync `PLUGIN_VERSION` in `src/index.ts`.
+3. Sync `PLUGIN_VERSION` in `src/constants.ts`.
 4. Run `pnpm verify` and `pnpm pack --dry-run`.
 5. Publish with `pnpm publish --access public --no-git-checks --provenance`.
