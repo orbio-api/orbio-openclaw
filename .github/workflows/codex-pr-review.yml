@@ -161,6 +161,8 @@ jobs:
             const headSha = process.env.PULL_HEAD_SHA || "";
             const labels = context.payload.pull_request?.labels || [];
             const labelPresent = labels.some((label) => label.name === labelName);
+            const eventAction = context.payload.action || "";
+            const eventLabelName = context.payload.label?.name || "";
 
             const { owner, repo } = context.repo;
             const issue_number = context.issue.number;
@@ -185,18 +187,44 @@ jobs:
             const recordedStatus = (statusMatch?.[1] || "").trim().toLowerCase();
             const approvedBy = approvedByMatch?.[1] || "";
             const approvedSha = approvedShaMatch?.[1] || "";
-            const active = labelPresent && recordedStatus === "active" && approvedSha === headSha;
+            const auditActive =
+              labelPresent && recordedStatus === "active" && approvedSha === headSha;
             const stale =
               labelPresent &&
               recordedStatus === "active" &&
               approvedSha !== "" &&
               approvedSha !== headSha;
+            let manualEventActive = false;
+            let manualEventApprovedBy = "";
+
+            if (!auditActive && eventAction === "labeled" && eventLabelName === labelName) {
+              const sender = context.payload.sender?.login || "";
+              if (sender) {
+                const permissionResponse = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner,
+                  repo,
+                  username: sender,
+                });
+                if (permissionResponse.data.permission === "admin") {
+                  manualEventActive = true;
+                  manualEventApprovedBy = sender;
+                }
+              }
+            }
+
+            const active = auditActive || manualEventActive;
+            const overrideSource = auditActive
+              ? "audit-comment"
+              : manualEventActive
+                ? "manual-label-event"
+                : "none";
 
             core.setOutput("label_present", labelPresent ? "1" : "0");
             core.setOutput("active", active ? "1" : "0");
             core.setOutput("stale", stale ? "1" : "0");
-            core.setOutput("approved_by", approvedBy);
-            core.setOutput("approved_sha", approvedSha);
+            core.setOutput("approved_by", approvedBy || manualEventApprovedBy);
+            core.setOutput("approved_sha", approvedSha || (manualEventActive ? headSha : ""));
+            core.setOutput("source", overrideSource);
 
       - name: Upload Codex review artifact
         if: ${{ always() }}
@@ -224,6 +252,7 @@ jobs:
           OVERRIDE_STALE: ${{ steps.override.outputs.stale }}
           OVERRIDE_APPROVED_BY: ${{ steps.override.outputs.approved_by }}
           OVERRIDE_APPROVED_SHA: ${{ steps.override.outputs.approved_sha }}
+          OVERRIDE_SOURCE: ${{ steps.override.outputs.source }}
         with:
           script: |
             const fs = require("fs");
@@ -247,6 +276,7 @@ jobs:
             const overrideStale = process.env.OVERRIDE_STALE === "1";
             const overrideApprovedBy = process.env.OVERRIDE_APPROVED_BY || "";
             const overrideApprovedSha = process.env.OVERRIDE_APPROVED_SHA || "";
+            const overrideSource = process.env.OVERRIDE_SOURCE || "none";
             const timedOut = exitCode === "124" || exitCode === "137";
             const totalFindings = p0 + p1 + p2 + p3;
             const isBlocking =
@@ -294,6 +324,7 @@ jobs:
               `Parser status: \`${parseFailed ? "failed" : "ok"}\``,
               `Parser fallback used: \`${parseInconclusive ? "yes" : "no"}\``,
               `Admin override: ${overrideSummary}`,
+              `Override source: \`${overrideSource}\``,
               `Override SHA: \`${overrideApprovedSha || "n/a"}\``,
               "",
               "**Top findings**",
