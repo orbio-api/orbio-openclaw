@@ -71,16 +71,23 @@ jobs:
           git fetch --no-tags origin \
             "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
 
-      - name: Authenticate Codex (fallback to OPENAI_API_KEY)
+      - name: Restore Codex auth
         shell: bash
         env:
+          CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          if [ -n "${OPENAI_API_KEY:-}" ]; then
+          mkdir -p "${HOME}/.codex"
+          if [ -n "${CODEX_AUTH_JSON_B64:-}" ]; then
+            printf '%s' "${CODEX_AUTH_JSON_B64}" | base64 --decode > "${HOME}/.codex/auth.json"
+            chmod 600 "${HOME}/.codex/auth.json"
+            codex login status
+          elif [ -n "${OPENAI_API_KEY:-}" ]; then
             printenv OPENAI_API_KEY | codex login --with-api-key
           else
-            codex login status
+            echo "::error::Missing CODEX_AUTH_JSON_B64 or OPENAI_API_KEY for Codex auth."
+            exit 1
           fi
 
       - name: Run Codex review
