@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+TOOLS_DEV_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${TOOLS_DEV_DIR}/../.." && pwd)"
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: tools/dev/wt-cleanup --branch <branch> [--worktree-path <path>] [--keep-branch]
+
+Removes a worktree and deletes the local branch by default.
+EOF
+}
+
+resolve_worktree_path() {
+  local branch_ref="refs/heads/$1"
+  git -C "${REPO_ROOT}" worktree list --porcelain | awk -v branch_ref="${branch_ref}" '
+    /^worktree / { path = substr($0, 10); next }
+    /^branch / {
+      if ($2 == branch_ref) {
+        print path
+        exit 0
+      }
+    }
+  '
+}
+
+BRANCH=""
+WORKTREE_PATH=""
+KEEP_BRANCH=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --branch)
+      [[ $# -ge 2 ]] || die "--branch requires a value"
+      BRANCH="$2"
+      shift 2
+      ;;
+    --worktree-path)
+      [[ $# -ge 2 ]] || die "--worktree-path requires a value"
+      WORKTREE_PATH="$2"
+      shift 2
+      ;;
+    --keep-branch)
+      KEEP_BRANCH=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ -n "${BRANCH}" ]] || die "--branch is required"
+
+if [[ -z "${WORKTREE_PATH}" ]]; then
+  WORKTREE_PATH="$(resolve_worktree_path "${BRANCH}")"
+fi
+
+if [[ -n "${WORKTREE_PATH}" ]]; then
+  git -C "${REPO_ROOT}" worktree remove "${WORKTREE_PATH}" --force
+fi
+
+if [[ "${KEEP_BRANCH}" != "1" ]] && git -C "${REPO_ROOT}" show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+  git -C "${REPO_ROOT}" branch -D "${BRANCH}"
+fi
+
+git -C "${REPO_ROOT}" worktree prune
+
+cat <<EOF
+Cleaned worktree for branch: ${BRANCH}
+Worktree path: ${WORKTREE_PATH:-not found}
+Deleted local branch: $([[ "${KEEP_BRANCH}" == "1" ]] && echo no || echo yes)
+EOF
