@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+TOOLS_DEV_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${TOOLS_DEV_DIR}/../.." && pwd)"
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: tools/dev/wt-new --branch <branch> [--worktree-path <path>]
+
+Creates a fresh worktree from origin/main under ../.worktrees/<repo>/<branch-slug>.
+EOF
+}
+
+BRANCH=""
+WORKTREE_PATH=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --branch)
+      [[ $# -ge 2 ]] || die "--branch requires a value"
+      BRANCH="$2"
+      shift 2
+      ;;
+    --worktree-path)
+      [[ $# -ge 2 ]] || die "--worktree-path requires a value"
+      WORKTREE_PATH="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ -n "${BRANCH}" ]] || die "--branch is required"
+
+REPO_NAME="$(basename "${REPO_ROOT}")"
+BRANCH_SLUG="${BRANCH//\//-}"
+
+if [[ -z "${WORKTREE_PATH}" ]]; then
+  WORKTREE_PATH="$(cd "${REPO_ROOT}/.." && pwd)/.worktrees/${REPO_NAME}/${BRANCH_SLUG}"
+fi
+
+git -C "${REPO_ROOT}" fetch origin --prune
+mkdir -p "$(dirname "${WORKTREE_PATH}")"
+git -C "${REPO_ROOT}" worktree add -b "${BRANCH}" "${WORKTREE_PATH}" origin/main
+
+cat <<EOF
+Created worktree: ${WORKTREE_PATH}
+Branch: ${BRANCH}
+
+Next steps:
+  1. cd "${WORKTREE_PATH}"
+  2. pnpm install
+  3. implement and validate with pnpm verify
+EOF

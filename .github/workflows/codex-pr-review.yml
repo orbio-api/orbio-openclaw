@@ -1,0 +1,284 @@
+name: codex-pr-review
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  review:
+    if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: repo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: repo
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Codex CLI
+        shell: bash
+        run: npm install --global @openai/codex@0.114.0
+
+      - name: Ensure runner prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v codex >/dev/null 2>&1 || { echo "::error::codex CLI was not found on this runner."; exit 1; }
+          command -v python3 >/dev/null 2>&1 || { echo "::error::python3 was not found on this runner."; exit 1; }
+          codex --version
+          if command -v timeout >/dev/null 2>&1; then
+            echo "timeout=$(command -v timeout)"
+          elif command -v gtimeout >/dev/null 2>&1; then
+            echo "timeout=$(command -v gtimeout)"
+          else
+            echo "::error::GNU timeout (timeout or gtimeout) was not found on this runner."
+            exit 1
+          fi
+          if command -v stdbuf >/dev/null 2>&1; then
+            echo "stdbuf=$(command -v stdbuf)"
+          elif command -v gstdbuf >/dev/null 2>&1; then
+            echo "stdbuf=$(command -v gstdbuf)"
+          else
+            echo "::warning::stdbuf was not found; codex output will still run, but line buffering may be coarser."
+          fi
+
+      - name: Fetch base branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+
+      - name: Restore Codex auth
+        shell: bash
+        env:
+          CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.codex"
+          if [ -n "${CODEX_AUTH_JSON_B64:-}" ]; then
+            printf '%s' "${CODEX_AUTH_JSON_B64}" | base64 --decode > "${HOME}/.codex/auth.json"
+            chmod 600 "${HOME}/.codex/auth.json"
+            codex login status
+          elif [ -n "${OPENAI_API_KEY:-}" ]; then
+            printenv OPENAI_API_KEY | codex login --with-api-key
+          else
+            echo "::error::Missing CODEX_AUTH_JSON_B64 or OPENAI_API_KEY for Codex auth."
+            exit 1
+          fi
+
+      - name: Run Codex review
+        id: review
+        shell: bash
+        env:
+          CODEX_REVIEW_BASE: ${{ github.base_ref }}
+          CODEX_REVIEW_MODEL: gpt-5.4
+          CODEX_REVIEW_TIMEOUT_SECONDS: "900"
+        run: |
+          set +e
+          tools/ci/run_codex_review.sh
+          rc=$?
+          set -e
+          echo "codex_exit_code=$rc" >> "$GITHUB_OUTPUT"
+
+      - name: Parse Codex severity counts
+        id: parse
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          write_default_parse_env() {
+            cat > codex-parse.env <<'EOF'
+          p0=0
+          p1=0
+          p2=0
+          p3=0
+          parse_inconclusive=0
+          parse_failed=1
+          EOF
+          }
+
+          if [ ! -f codex-review.txt ]; then
+            echo "::error::codex-review.txt was not generated."
+            write_default_parse_env
+          else
+            set +e
+            python3 tools/ci/parse_codex_review.py codex-review.txt > codex-parse.env
+            rc=$?
+            set -e
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::Failed to parse codex-review.txt."
+              write_default_parse_env
+            fi
+          fi
+
+          # shellcheck disable=SC1091
+          source codex-parse.env
+
+          echo "p0_count=$p0" >> "$GITHUB_OUTPUT"
+          echo "p1_count=$p1" >> "$GITHUB_OUTPUT"
+          echo "p2_count=$p2" >> "$GITHUB_OUTPUT"
+          echo "p3_count=$p3" >> "$GITHUB_OUTPUT"
+          echo "parse_inconclusive=$parse_inconclusive" >> "$GITHUB_OUTPUT"
+          echo "parse_failed=$parse_failed" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Codex review artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-pr-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            repo/codex-review.txt
+            repo/codex-parse.env
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upsert PR comment with Codex output
+        if: ${{ always() }}
+        uses: actions/github-script@v7
+        env:
+          CODEX_EXIT_CODE: ${{ steps.review.outputs.codex_exit_code }}
+          P0_COUNT: ${{ steps.parse.outputs.p0_count }}
+          P1_COUNT: ${{ steps.parse.outputs.p1_count }}
+          P2_COUNT: ${{ steps.parse.outputs.p2_count }}
+          P3_COUNT: ${{ steps.parse.outputs.p3_count }}
+          PARSE_INCONCLUSIVE: ${{ steps.parse.outputs.parse_inconclusive }}
+          PARSE_FAILED: ${{ steps.parse.outputs.parse_failed }}
+        with:
+          script: |
+            const fs = require("fs");
+
+            const marker = "<!-- codex-pr-review -->";
+            const outputPath = "repo/codex-review.txt";
+            let output = "codex-review.txt not found.";
+
+            if (fs.existsSync(outputPath)) {
+              output = fs.readFileSync(outputPath, "utf8");
+            }
+
+            const exitCode = process.env.CODEX_EXIT_CODE || "1";
+            const p0 = Number(process.env.P0_COUNT || "0");
+            const p1 = Number(process.env.P1_COUNT || "0");
+            const p2 = Number(process.env.P2_COUNT || "0");
+            const p3 = Number(process.env.P3_COUNT || "0");
+            const parseInconclusive = process.env.PARSE_INCONCLUSIVE === "1";
+            const parseFailed = process.env.PARSE_FAILED === "1";
+            const timedOut = exitCode === "124" || exitCode === "137";
+            const totalFindings = p0 + p1 + p2 + p3;
+            const isBlocking = exitCode !== "0" || p0 > 0 || p1 > 0 || parseInconclusive || parseFailed;
+            const status = isBlocking ? "❌ blocking" : "✅ non-blocking";
+            const shouldComment = exitCode !== "0" || totalFindings > 0 || parseInconclusive || parseFailed;
+
+            const findings = output
+              .split(/\r?\n/)
+              .filter((line) => /^\s*-\s*\[P[0-3]\]/.test(line))
+              .map((line) => line.trim())
+              .slice(0, 5);
+
+            const findingsSection =
+              findings.length > 0 ? findings.map((line) => `- ${line}`).join("\n") : "- none";
+
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
+            const body = [
+              marker,
+              "### Codex PR review",
+              "",
+              `Result: **${status}**`,
+              `Exit code: \`${exitCode}\``,
+              `Timed out: \`${timedOut ? "yes" : "no"}\``,
+              `Blocking findings: P0 \`${p0}\` | P1 \`${p1}\``,
+              `Other findings: P2 \`${p2}\` | P3 \`${p3}\``,
+              `Parser status: \`${parseFailed ? "failed" : "ok"}\``,
+              `Parser fallback used: \`${parseInconclusive ? "yes" : "no"}\``,
+              "",
+              "**Top findings**",
+              findingsSection,
+              "",
+              `[Workflow logs](${runUrl})`,
+            ].join("\n");
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const existing = comments.find(
+              (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+            );
+
+            if (!shouldComment) {
+              if (existing) {
+                await github.rest.issues.deleteComment({
+                  owner,
+                  repo,
+                  comment_id: existing.id,
+                });
+              }
+              return;
+            }
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
+
+      - name: Fail if Codex command failed
+        if: ${{ steps.review.outputs.codex_exit_code != '0' }}
+        shell: bash
+        run: |
+          echo "::error::codex review command failed (exit code ${{ steps.review.outputs.codex_exit_code }})."
+          exit 1
+
+      - name: Fail if Codex parse failed
+        if: ${{ steps.parse.outputs.parse_failed == '1' }}
+        shell: bash
+        run: |
+          echo "::error::Codex review output parsing failed."
+          exit 1
+
+      - name: Fail on P0 or P1 findings
+        if: ${{ steps.parse.outputs.p0_count != '0' || steps.parse.outputs.p1_count != '0' || steps.parse.outputs.parse_inconclusive == '1' }}
+        shell: bash
+        run: |
+          echo "::error::Codex review reported blocking findings."
+          exit 1
