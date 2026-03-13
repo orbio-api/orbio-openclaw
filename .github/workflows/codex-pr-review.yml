@@ -20,9 +20,7 @@ permissions:
 jobs:
   review:
     if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false }}
-    runs-on:
-      - self-hosted
-      - linux
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
       run:
@@ -33,6 +31,15 @@ jobs:
         with:
           fetch-depth: 0
           path: repo
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Codex CLI
+        shell: bash
+        run: npm install --global @openai/codex@0.114.0
 
       - name: Ensure runner prerequisites
         shell: bash
