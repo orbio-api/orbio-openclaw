@@ -7,6 +7,8 @@ on:
       - synchronize
       - reopened
       - ready_for_review
+      - labeled
+      - unlabeled
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -145,6 +147,85 @@ jobs:
           echo "parse_inconclusive=$parse_inconclusive" >> "$GITHUB_OUTPUT"
           echo "parse_failed=$parse_failed" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve admin override state
+        id: override
+        if: ${{ always() }}
+        uses: actions/github-script@v7
+        env:
+          OVERRIDE_LABEL: codex-override-approved
+          PULL_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const marker = "<!-- codex-review-override -->";
+            const labelName = process.env.OVERRIDE_LABEL;
+            const headSha = process.env.PULL_HEAD_SHA || "";
+            const labels = context.payload.pull_request?.labels || [];
+            const labelPresent = labels.some((label) => label.name === labelName);
+            const eventAction = context.payload.action || "";
+            const eventLabelName = context.payload.label?.name || "";
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const audit = comments
+              .filter((comment) => comment.user?.type === "Bot" && comment.body?.includes(marker))
+              .sort(
+                (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+              )[0];
+
+            const body = audit?.body || "";
+            const statusMatch = body.match(/^Status:\s*([^\n\r]+)/m);
+            const approvedByMatch = body.match(/^Approved by:\s*@([^\s]+)/m);
+            const approvedShaMatch = body.match(/^Head SHA:\s*`?([0-9a-f]{7,40})`?/m);
+
+            const recordedStatus = (statusMatch?.[1] || "").trim().toLowerCase();
+            const approvedBy = approvedByMatch?.[1] || "";
+            const approvedSha = approvedShaMatch?.[1] || "";
+            const auditActive =
+              labelPresent && recordedStatus === "active" && approvedSha === headSha;
+            const stale =
+              labelPresent &&
+              recordedStatus === "active" &&
+              approvedSha !== "" &&
+              approvedSha !== headSha;
+            let manualEventActive = false;
+            let manualEventApprovedBy = "";
+
+            if (!auditActive && eventAction === "labeled" && eventLabelName === labelName) {
+              const sender = context.payload.sender?.login || "";
+              if (sender) {
+                const permissionResponse = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner,
+                  repo,
+                  username: sender,
+                });
+                if (permissionResponse.data.permission === "admin") {
+                  manualEventActive = true;
+                  manualEventApprovedBy = sender;
+                }
+              }
+            }
+
+            const active = auditActive || manualEventActive;
+            const overrideSource = auditActive
+              ? "audit-comment"
+              : manualEventActive
+                ? "manual-label-event"
+                : "none";
+
+            core.setOutput("label_present", labelPresent ? "1" : "0");
+            core.setOutput("active", active ? "1" : "0");
+            core.setOutput("stale", stale ? "1" : "0");
+            core.setOutput("approved_by", approvedBy || manualEventApprovedBy);
+            core.setOutput("approved_sha", approvedSha || (manualEventActive ? headSha : ""));
+            core.setOutput("source", overrideSource);
+
       - name: Upload Codex review artifact
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -167,6 +248,11 @@ jobs:
           P3_COUNT: ${{ steps.parse.outputs.p3_count }}
           PARSE_INCONCLUSIVE: ${{ steps.parse.outputs.parse_inconclusive }}
           PARSE_FAILED: ${{ steps.parse.outputs.parse_failed }}
+          OVERRIDE_ACTIVE: ${{ steps.override.outputs.active }}
+          OVERRIDE_STALE: ${{ steps.override.outputs.stale }}
+          OVERRIDE_APPROVED_BY: ${{ steps.override.outputs.approved_by }}
+          OVERRIDE_APPROVED_SHA: ${{ steps.override.outputs.approved_sha }}
+          OVERRIDE_SOURCE: ${{ steps.override.outputs.source }}
         with:
           script: |
             const fs = require("fs");
@@ -186,11 +272,34 @@ jobs:
             const p3 = Number(process.env.P3_COUNT || "0");
             const parseInconclusive = process.env.PARSE_INCONCLUSIVE === "1";
             const parseFailed = process.env.PARSE_FAILED === "1";
+            const overrideActive = process.env.OVERRIDE_ACTIVE === "1";
+            const overrideStale = process.env.OVERRIDE_STALE === "1";
+            const overrideApprovedBy = process.env.OVERRIDE_APPROVED_BY || "";
+            const overrideApprovedSha = process.env.OVERRIDE_APPROVED_SHA || "";
+            const overrideSource = process.env.OVERRIDE_SOURCE || "none";
             const timedOut = exitCode === "124" || exitCode === "137";
             const totalFindings = p0 + p1 + p2 + p3;
-            const isBlocking = exitCode !== "0" || p0 > 0 || p1 > 0 || parseInconclusive || parseFailed;
-            const status = isBlocking ? "❌ blocking" : "✅ non-blocking";
-            const shouldComment = exitCode !== "0" || totalFindings > 0 || parseInconclusive || parseFailed;
+            const isBlocking =
+              exitCode !== "0" ||
+              p0 > 0 ||
+              parseInconclusive ||
+              parseFailed ||
+              (p1 > 0 && !overrideActive);
+            const status = isBlocking
+              ? "❌ blocking"
+              : overrideActive && p1 > 0
+                ? "⚠️ admin override applied"
+                : "✅ non-blocking";
+            const overrideStatus = overrideActive ? "active" : overrideStale ? "stale" : "none";
+            const overrideSummary = overrideApprovedBy
+              ? `\`${overrideStatus}\` by @${overrideApprovedBy}`
+              : `\`${overrideStatus}\``;
+            const shouldComment =
+              exitCode !== "0" ||
+              totalFindings > 0 ||
+              parseInconclusive ||
+              parseFailed ||
+              overrideStatus !== "none";
 
             const findings = output
               .split(/\r?\n/)
@@ -214,6 +323,9 @@ jobs:
               `Other findings: P2 \`${p2}\` | P3 \`${p3}\``,
               `Parser status: \`${parseFailed ? "failed" : "ok"}\``,
               `Parser fallback used: \`${parseInconclusive ? "yes" : "no"}\``,
+              `Admin override: ${overrideSummary}`,
+              `Override source: \`${overrideSource}\``,
+              `Override SHA: \`${overrideApprovedSha || "n/a"}\``,
               "",
               "**Top findings**",
               findingsSection,
@@ -276,9 +388,16 @@ jobs:
           echo "::error::Codex review output parsing failed."
           exit 1
 
-      - name: Fail on P0 or P1 findings
-        if: ${{ steps.parse.outputs.p0_count != '0' || steps.parse.outputs.p1_count != '0' || steps.parse.outputs.parse_inconclusive == '1' }}
+      - name: Fail on P0 findings or inconclusive parse
+        if: ${{ steps.parse.outputs.p0_count != '0' || steps.parse.outputs.parse_inconclusive == '1' }}
         shell: bash
         run: |
-          echo "::error::Codex review reported blocking findings."
+          echo "::error::Codex review reported blocking P0 findings or an inconclusive parse."
+          exit 1
+
+      - name: Fail on P1 findings without admin override
+        if: ${{ steps.parse.outputs.p1_count != '0' && steps.override.outputs.active != '1' }}
+        shell: bash
+        run: |
+          echo "::error::Blocking Codex P1 findings detected without an active admin override."
           exit 1
