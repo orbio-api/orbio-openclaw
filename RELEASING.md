@@ -1,5 +1,9 @@
 # Releasing `@orbio/orbio-openclaw`
 
+**Owner:** OpenClaw Integration / Release
+**Última verificação:** 2026-04-08 (rodada beta)
+**Evidência de referência:** https://github.com/orbio-api/orbio-openclaw/issues/9
+
 ## Prerequisites
 
 - `pnpm` 10+
@@ -37,8 +41,9 @@ pnpm publish --access public --no-git-checks --provenance
 
 ## Mandatory real-environment gate
 
-Before publishing, complete both:
-1. Automated live smoke (`pnpm --filter @orbio/orbio-openclaw smoke:live`)
-2. Manual sandbox OpenClaw runtime test
+Before publishing, complete all gates:
+1. `pnpm verify`
+2. Automated live smoke (`pnpm --filter @orbio/orbio-openclaw smoke:live`)
+3. Manual sandbox OpenClaw runtime test
 
 Reference: `REAL_ENV_TESTING.md`

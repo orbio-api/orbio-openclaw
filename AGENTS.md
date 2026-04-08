@@ -52,6 +52,13 @@ pnpm verify
 - Required PR checks are `plugin` and `review`.
 - `codex-pr-review` is always part of CI and blocks on execution failure, parse failure, or P0/P1 findings.
 
+## Beta Documentation Hygiene (Onda 5)
+- Keep release/live validation docs aligned before beta GO/NO-GO:
+  - `REAL_ENV_TESTING.md`
+  - `RELEASING.md`
+  - `orbio-openclaw-plugin/README.md`
+- Every beta update must include owner, validation date, and evidence link.
+
 ## References
 - `../AGENTS.md`
 - Skill: `orbio-openclaw-delivery`

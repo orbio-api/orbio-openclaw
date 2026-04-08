@@ -2,6 +2,10 @@
 
 This validation must be completed before publishing new package versions.
 
+**Owner:** OpenClaw Integration / Release
+**Última verificação:** 2026-04-08 (rodada beta)
+**Evidência de referência:** https://github.com/orbio-api/orbio-openclaw/issues/9
+
 ## 1) Live API smoke (automated)
 
 Use sandbox credentials and run:
@@ -43,3 +47,11 @@ Only publish if:
 - `pnpm verify` passes
 - live smoke passes
 - sandbox OpenClaw manual test passes
+
+## 4) Evidence required in release issue/PR
+
+Attach at least:
+- output summary of `pnpm verify`
+- output summary of `pnpm --filter @orbio/orbio-openclaw smoke:live`
+- manual sandbox execution notes (`/orbio search`, `/orbio export`, `/orbio export-status`)
+- release owner + validation date

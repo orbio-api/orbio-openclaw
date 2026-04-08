@@ -76,3 +76,12 @@ Reference env file: `.env.smoke.example`
 3. Sync `PLUGIN_VERSION` in `src/constants.ts`.
 4. Run `pnpm verify` and `pnpm pack --dry-run`.
 5. Publish with `pnpm publish --access public --no-git-checks --provenance`.
+
+## Beta release validation gate
+
+Before publish in beta windows, the release owner must record:
+- `pnpm verify` result
+- live smoke result (`pnpm smoke:live`)
+- manual sandbox execution notes (`/orbio search`, `/orbio export`, `/orbio export-status`)
+
+Reference: `../REAL_ENV_TESTING.md`
