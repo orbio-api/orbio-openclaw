@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
   actions: write  # For uploading test reports
+  issues: write   # For optional PR comment step
 
 jobs:
   smoke-live:
@@ -67,7 +68,7 @@ jobs:
         id: smoke
         working-directory: orbio-openclaw-plugin
         run: |
-          set -e
+          set -euo pipefail
           echo "[smoke:live] Starting live validation..."
           echo ""
           pnpm smoke:live 2>&1 | tee smoke-live-output.log
@@ -106,6 +107,6 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber,
-                body: `## ✅ Smoke Live Validation Passed\n\nRun: [${context.workflow}] #${context.runId}](${workflowUrl})\n\nAll live environment checks passed successfully.`
+                body: `## ✅ Smoke Live Validation Passed\n\nRun: [${context.workflow} #${context.runId}](${workflowUrl})\n\nAll live environment checks passed successfully.`
               });
             }
