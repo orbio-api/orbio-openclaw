@@ -41,3 +41,13 @@ jobs:
         with:
           name: npm-package
           path: artifacts/*.tgz
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-failure-logs-${{ github.run_id }}
+          path: |
+            orbio-openclaw-plugin/coverage/
+            orbio-openclaw-plugin/dist/
+          retention-days: 7
