@@ -1,0 +1,112 @@
+name: Smoke Live Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "GitHub Actions run ID (optional, for linking to PR)"
+        required: false
+
+permissions:
+  contents: read
+  actions: write  # For uploading test reports
+  issues: write   # For optional PR comment step
+
+jobs:
+  smoke-live:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate env variables
+        working-directory: orbio-openclaw-plugin
+        run: |
+          set -e
+
+          echo "[smoke:live] Checking required env variables..."
+          for var in ORBIO_BASE_URL ORBIO_API_KEY; do
+            if [[ -z "${!var:-}" ]]; then
+              echo "❌ Missing required env: $var"
+              echo ""
+              echo "Please configure these secrets in repository settings:"
+              echo "  Settings → Secrets and variables → Actions → New repository secret"
+              echo ""
+              exit 1
+            fi
+            echo "✓ $var is configured"
+          done
+
+          echo ""
+          echo "Optional env (with defaults):"
+          echo "  ORBIO_WORKSPACE_ID: ${ORBIO_WORKSPACE_ID:-openclaw-smoke}"
+          echo "  ORBIO_SMOKE_QUERY: ${ORBIO_SMOKE_QUERY:-software b2b em sao paulo}"
+          echo "  ORBIO_SMOKE_LIMIT: ${ORBIO_SMOKE_LIMIT:-3}"
+        env:
+          ORBIO_BASE_URL: ${{ secrets.ORBIO_BASE_URL }}
+          ORBIO_API_KEY: ${{ secrets.ORBIO_API_KEY }}
+          ORBIO_WORKSPACE_ID: ${{ secrets.ORBIO_WORKSPACE_ID }}
+          ORBIO_SMOKE_QUERY: ${{ secrets.ORBIO_SMOKE_QUERY }}
+          ORBIO_SMOKE_LIMIT: ${{ secrets.ORBIO_SMOKE_LIMIT }}
+
+      - name: Run smoke:live
+        id: smoke
+        working-directory: orbio-openclaw-plugin
+        run: |
+          set -euo pipefail
+          echo "[smoke:live] Starting live validation..."
+          echo ""
+          pnpm smoke:live 2>&1 | tee smoke-live-output.log
+        env:
+          ORBIO_BASE_URL: ${{ secrets.ORBIO_BASE_URL }}
+          ORBIO_API_KEY: ${{ secrets.ORBIO_API_KEY }}
+          ORBIO_WORKSPACE_ID: ${{ secrets.ORBIO_WORKSPACE_ID }}
+          ORBIO_SMOKE_QUERY: ${{ secrets.ORBIO_SMOKE_QUERY }}
+          ORBIO_SMOKE_LIMIT: ${{ secrets.ORBIO_SMOKE_LIMIT }}
+
+      - name: Upload smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-live-logs-${{ github.run_id }}
+          path: orbio-openclaw-plugin/smoke-live-output.log
+          retention-days: 30
+
+      - name: Add PR comment (if run_id provided)
+        if: ${{ success() && github.event.inputs.run_id != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runId = '${{ github.event.inputs.run_id }}';
+            const run = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: parseInt(runId),
+            });
+
+            if (run.data.pull_requests && run.data.pull_requests.length > 0) {
+              const prNumber = run.data.pull_requests[0].number;
+              const workflowUrl = `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: `## ✅ Smoke Live Validation Passed\n\nRun: [${context.workflow} #${context.runId}](${workflowUrl})\n\nAll live environment checks passed successfully.`
+              });
+            }
