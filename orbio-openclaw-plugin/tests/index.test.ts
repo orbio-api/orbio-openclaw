@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import registerOrbioPlugin from "../src/index";
+import { errorText } from "../src/formatters";
+import { OrbioInvalidResponseError } from "../src/http";
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -25,6 +27,14 @@ type ModernToolRegistration = {
 type SetupOptions = {
   config?: Record<string, unknown>;
   env?: Record<string, string | undefined>;
+};
+
+type ErrorMappingCase = {
+  title: string;
+  status: number;
+  payload: unknown;
+  headers?: Record<string, string>;
+  expected: string;
 };
 
 const SAFE_FIELDS = [
@@ -60,13 +70,31 @@ const fetchMock = vi.fn();
 function jsonResponse(
   payload: unknown,
   status = 200,
-  headers?: Record<string, string>,
+  headers?: Record<string, string | undefined>,
 ): Response {
-  return new Response(JSON.stringify(payload), { status, headers });
+  const responseHeaders: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers ?? {})) {
+    if (value !== undefined) {
+      responseHeaders[key] = value;
+    }
+  }
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: responseHeaders,
+  });
 }
 
-function textResponse(text: string, status = 200, headers?: Record<string, string>): Response {
-  return new Response(text, { status, headers });
+function textResponse(text: string, status = 200, headers?: Record<string, string | undefined>): Response {
+  const responseHeaders: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers ?? {})) {
+    if (value !== undefined) {
+      responseHeaders[key] = value;
+    }
+  }
+  return new Response(text, {
+    status,
+    headers: responseHeaders,
+  });
 }
 
 function capabilitiesResponse(fieldAllowlist: string[] = SAFE_FIELDS): Response {
@@ -852,7 +880,7 @@ describe("orbio-openclaw plugin", () => {
     expect(text).toContain("Orbio API error: Network failure while calling Orbio API.");
   });
 
-  it.each([
+  it.each<ErrorMappingCase>([
     {
       title: "429 rate limit with retry-after and request id",
       status: 429,
@@ -933,23 +961,35 @@ describe("orbio-openclaw plugin", () => {
     expect(text).toContain(expected);
   });
 
-  it("handles non-json error payloads safely", async () => {
+  it("fails fast on non-json error payloads", async () => {
     fetchMock
       .mockResolvedValueOnce(capabilitiesResponse()).mockResolvedValueOnce(specResponse()).mockResolvedValueOnce(normalizedSpecResponse())
       .mockResolvedValueOnce(textResponse("not-json", 400, { "X-Request-Id": "req-text" }));
 
     const { handlers } = setupPlugin();
     const text = await invokeTool(handlers, "orbio_search", { query_text: "non-json error" });
-    expect(text).toContain("Orbio API error: Orbio API returned an error. (request_id=req-text)");
+    expect(text).toBe("Orbio API returned an invalid JSON response. (status=400) (request_id=req-text)");
   });
 
-  it("handles non-json successful payloads safely", async () => {
-    fetchMock.mockResolvedValueOnce(textResponse("ok-but-not-json", 200));
+  it("fails fast on non-json successful payloads", async () => {
+    fetchMock.mockResolvedValueOnce(textResponse("ok-but-not-json", 200, { "X-Request-Id": "req-success-text" }));
+    const { handlers } = setupPlugin();
+
+    const text = await invokeTool(handlers, "orbio_export_status", { export_id: "exp-123" });
+    expect(text).toBe("Orbio API returned an invalid JSON response. (status=200) (request_id=req-success-text)");
+  });
+
+  it("returns empty object for empty successful payloads", async () => {
+    fetchMock.mockResolvedValueOnce(textResponse("", 200));
     const { handlers } = setupPlugin();
 
     const text = await invokeTool(handlers, "orbio_export_status", { export_id: "exp-123" });
     expect(text).toContain("Export status:");
     expect(parseJsonBlock(text)).toEqual({});
+  });
+
+  it("formats invalid JSON errors without optional context", () => {
+    expect(errorText(new OrbioInvalidResponseError(0, null))).toBe("Orbio API returned an invalid JSON response.");
   });
 
   it("handles 204 successful payloads safely", async () => {

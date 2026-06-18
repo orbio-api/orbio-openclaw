@@ -35,6 +35,17 @@ export class OrbioApiError extends Error {
   }
 }
 
+export class OrbioInvalidResponseError extends Error {
+  public readonly status: number;
+  public readonly requestId: string | null;
+
+  constructor(status: number, requestId: string | null) {
+    super("Orbio API returned an invalid JSON response.");
+    this.status = status;
+    this.requestId = requestId;
+  }
+}
+
 export class MinuteWindowLimiter {
   private readonly events = new Map<string, number[]>();
 
@@ -131,16 +142,16 @@ export class OrbioHttpClient {
           if (response.status === 204) {
             return {} as T;
           }
-          const payload = await this.parseJsonSafe(response);
+          const payload = await this.parseJson(response);
           return (payload ?? {}) as T;
         }
 
+        const payload = await this.parseJson(response);
         if (response.status >= 500 && attempt < this.cfg.retryCount) {
           await sleep(this.cfg.retryBackoffMs * (attempt + 1));
           continue;
         }
 
-        const payload = await this.parseJsonSafe(response);
         const { code, detail } = parseProblem(payload);
         throw new OrbioApiError({
           status: response.status,
@@ -156,7 +167,7 @@ export class OrbioHttpClient {
           await sleep(this.cfg.retryBackoffMs * (attempt + 1));
           continue;
         }
-        if (error instanceof OrbioApiError) {
+        if (error instanceof OrbioApiError || error instanceof OrbioInvalidResponseError) {
           throw error;
         }
         const detail = isAbort
@@ -181,7 +192,7 @@ export class OrbioHttpClient {
     });
   }
 
-  private async parseJsonSafe(response: Response): Promise<unknown | null> {
+  private async parseJson(response: Response): Promise<unknown | null> {
     const text = await response.text();
     if (!text.trim()) {
       return null;
@@ -189,7 +200,7 @@ export class OrbioHttpClient {
     try {
       return JSON.parse(text);
     } catch {
-      return null;
+      throw new OrbioInvalidResponseError(response.status, response.headers.get("X-Request-Id"));
     }
   }
 

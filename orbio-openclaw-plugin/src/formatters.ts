@@ -1,4 +1,4 @@
-import { OrbioApiError, PluginRateLimitError } from "./http";
+import { OrbioApiError, OrbioInvalidResponseError, PluginRateLimitError } from "./http";
 import type {
   AccountSearchResponse,
   ExportCreateResponse,
@@ -121,6 +121,12 @@ export function renderExportStatusText(payload: ExportStatusResponse): string {
 export function errorText(error: unknown): string {
   if (error instanceof PluginRateLimitError) {
     return `Rate limited by plugin policy. Retry in ~${error.retryAfterSec}s.`;
+  }
+
+  if (error instanceof OrbioInvalidResponseError) {
+    const status = error.status > 0 ? ` (status=${error.status})` : "";
+    const requestIdSuffix = error.requestId ? ` (request_id=${error.requestId})` : "";
+    return `Orbio API returned an invalid JSON response.${status}${requestIdSuffix}`;
   }
 
   if (error instanceof OrbioApiError) {
